@@ -1,0 +1,24 @@
+# Secrets
+.env
+.env.*
+!.env.example
+**/.env.local
+**/secrets/
+*.pem
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*.log
+
+# Dependencies / build
+node_modules/
+dist/
+build/
+.supabase/
+
+# Local only
+prototype/assets/team/
