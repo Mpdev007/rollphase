@@ -47,12 +47,13 @@ const UpdateCheck = (() => {
   function paintBuildLabel() {
     const v = window.ROLLPHASE_BUILD || boot;
     const label = document.getElementById("appBuildLabel");
+    // Product-facing only — never show raw build hashes / deploy IDs
     if (label && v) {
-      label.textContent = `Build ${v.buildId || v.version || "—"}`;
+      label.textContent = v.version ? `Version ${v.version}` : "You’re up to date";
     }
     const about = document.getElementById("appBuildLabelAbout");
     if (about && v) {
-      about.textContent = `${v.version || ""} · ${v.buildId || ""}`;
+      about.textContent = v.version ? `Version ${v.version}` : "";
     }
   }
 
@@ -292,10 +293,9 @@ const UpdateCheck = (() => {
       await hardReload("Refreshing…");
     } catch (e) {
       console.warn("getLatest", e);
-      setStatus("Couldn’t reach server — force refreshing…");
-      if (btn) btn.textContent = "Force refresh…";
-      // Still hard reload so local caches die
-      await hardReload("Force refresh…");
+      setStatus("Refreshing…");
+      if (btn) btn.textContent = "Refreshing…";
+      await hardReload("Refreshing…");
     }
   }
 
@@ -311,10 +311,9 @@ const UpdateCheck = (() => {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.id = "btnRefreshApp";
-      btn.title = "Download the latest version from the server";
-      btn.textContent = "Get latest";
+      btn.title = "Refresh the app";
+      btn.textContent = "Refresh app";
       btn.addEventListener("click", () => getLatest({ force: true }));
-      // Put refresh first — most useful while developing
       chrome.insertBefore(btn, chrome.firstChild);
     }
     paintBuildLabel();
@@ -328,15 +327,15 @@ const UpdateCheck = (() => {
     host.innerHTML = `
       <div class="app-update-card">
         <div>
-          <strong>App version</strong>
+          <strong>App updates</strong>
           <p class="muted small" id="appBuildLabel">Checking…</p>
           <p class="muted small" id="appRefreshStatus"></p>
         </div>
         <button type="button" class="btn-primary" id="btnGetLatestProfile" style="width:100%;margin-top:10px;padding:12px">
-          Get latest version
+          Refresh app
         </button>
         <p class="muted small" style="margin-top:8px">
-          After we push to Git, the host deploys automatically. Tap this anytime if the auto update banner doesn’t show.
+          If something looks out of date, refresh to load the newest experience.
         </p>
       </div>
     `;

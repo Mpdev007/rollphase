@@ -186,7 +186,7 @@ const PlacesLive = (() => {
 
   function buildTagsFromBits(bits, sports) {
     const base = (bits || []).filter(Boolean).slice(0, 4);
-    if (!base.length) base.push("Live listing");
+    if (!base.length) base.push("Nearby");
     const out = {};
     (sports.length ? sports : ["weightlifting"]).forEach((sid) => {
       out[sid] = base;
@@ -304,11 +304,9 @@ const PlacesLive = (() => {
         : undefined,
       sports: sports.length ? sports : sportId ? [sportId, "weightlifting"] : ["weightlifting"],
       tagBits: [
-        item.type,
         phone ? "Phone" : null,
         website ? "Website" : null,
         hours ? "Hours" : null,
-        "Live",
       ],
     });
   }
@@ -393,7 +391,7 @@ const PlacesLive = (() => {
           ? `https://www.openstreetmap.org/${props.osm_type === "W" ? "way" : props.osm_type === "R" ? "relation" : "node"}/${props.osm_id}`
           : undefined,
         sports: sports.length ? sports : ["weightlifting"],
-        tagBits: [props.osm_value, "Live"],
+        tagBits: [],
       });
     });
     return dedupePlaces(places.filter(Boolean));
@@ -770,7 +768,7 @@ out center tags 40;`;
       const cached = allowCache ? loadLastLocation() : null;
       if (cached) return cached;
       const err = new Error(
-        "Location needs a secure site (HTTPS). Use city search, or open the deployed HTTPS app."
+        "Location needs a secure connection. Open RollPhase from your usual link, or search a city."
       );
       err.code = 0;
       err.secure = false;
@@ -791,7 +789,7 @@ out center tags 40;`;
           const cached = allowCache ? loadLastLocation() : null;
           if (cached) return { ...cached, permissionDenied: true };
           const err = new Error(
-            "Location permission is blocked. Enable it in the browser site settings, or type a city."
+            "Location is blocked for this site. Allow it in your phone settings, or type a city."
           );
           err.code = 1;
           throw err;
