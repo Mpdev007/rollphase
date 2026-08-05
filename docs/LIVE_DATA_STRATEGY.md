@@ -18,14 +18,15 @@ Sport-specific signal (check-ins, partners, athlete reviews) comes from **our us
 | **P2** | Navigation-grade POI | HERE / TomTom | Enterprise reliability; weaker “gym discovery” UX than Google for consumers |
 | **Avoid** | Scrapers / SerpAPI of Maps | — | ToS risk, brittle, not production-grade |
 
-### Canonical stack
+### Canonical stack (implemented)
 
 ```
-Browser geolocation
-    → Google Places (if key) OR Geoapify (if key) OR OSM Overpass (always free)
-    → Normalize: id, name, lat/lng, mi, phone, website, hours, address, mapsUrl, sports[]
-    → UI: list + detail contact card (call · website · Maps)
-    → Supabase (later): cache place_id, favorites, check-ins, reviews, claims
+GPS or city search (Nominatim geocode)
+    → Google Places if API key
+    → else Nominatim viewbox + extratags (primary free — phone/website when mapped)
+    → + Photon bbox merge + Overpass best-effort
+    → Leaflet map (real OSM tiles + pins)
+    → Detail: Call · Website · Google Maps
 ```
 
 **Do not scrape Google.** **Do deep-link** to website + Google Maps for full business pages.
