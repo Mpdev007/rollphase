@@ -1,35 +1,19 @@
-# RollPhase — Closed Beta Prototype
+# RollPhase (beta)
 
-Interactive **phone-first** product prototype for multi-sport discovery (gyms, partners, events, gear, “I represent” personalization).
+**Train near you · every sport · your people.**
 
-> Not the native App Store app. Not production Supabase. For UX / friend testing only.
+Find gyms, partners, events, and gear. Rate venues after you train. Personalize how you represent your club.
 
-## Local run
+## Try it
+
+Open the live beta, or run locally:
 
 ```bash
-cd prototype
 python -m http.server 8765
-# open http://localhost:8765/
 ```
 
-## Beta features
+Then visit `http://localhost:8765/`
 
-- **Disclaimer gate** on first visit (acknowledgement + optional name/email)
-- **Feedback** button (top-right) — rating, area, message
-- **About** — re-read beta info; reset acknowledgement
-- Multi-sport home (optional focus, never forced)
-- Profile sports + custom represent (logo, colors, Nix hook)
+## Closed beta
 
-## Configure feedback email (optional)
-
-In `beta.js`, set:
-
-```js
-feedbackEmail: "you@example.com",
-```
-
-Uses [FormSubmit](https://formsubmit.co) (confirm the email once). If empty, feedback copies to clipboard and opens `mailto:`.
-
-## Deploy
-
-Static files only — any host works (GitHub Pages, Netlify, Cloudflare Pages).
+Accept the welcome terms, explore, and use **Feedback** anytime.
