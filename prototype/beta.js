@@ -122,7 +122,31 @@ function renderBetaGate() {
   return false;
 }
 
-function openFeedbackSheet() {
+function betaPushOverlay(name) {
+  try {
+    const tab =
+      (typeof state !== "undefined" && state.tab) ||
+      document.querySelector(".tab.active")?.dataset?.tab ||
+      "home";
+    history.pushState({ rp: 1, view: "overlay", name, tab }, "", `#/${tab}/${name}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+function betaCloseOverlay(sheet) {
+  if (!sheet) return;
+  const isHist =
+    history.state?.view === "overlay" &&
+    (history.state?.name === "feedback" || history.state?.name === "about");
+  if (isHist) {
+    history.back();
+    return;
+  }
+  sheet.remove();
+}
+
+function openFeedbackSheet(opts = {}) {
   document.getElementById("feedbackSheet")?.remove();
   const ack = loadBetaAck() || {};
   const sheet = document.createElement("div");
@@ -169,18 +193,12 @@ function openFeedbackSheet() {
     </div>
   `;
   document.body.appendChild(sheet);
+  if (opts.historyMode !== "none") betaPushOverlay("feedback");
   sheet.addEventListener("click", (e) => {
-    if (e.target === sheet) sheet.remove();
+    if (e.target === sheet) betaCloseOverlay(sheet);
   });
-  sheet.querySelector("#fbCancel")?.addEventListener("click", () => sheet.remove());
+  sheet.querySelector("#fbCancel")?.addEventListener("click", () => betaCloseOverlay(sheet));
   sheet.querySelector("#fbSubmit")?.addEventListener("click", () => submitFeedback(sheet));
-}
-
-function escapeAttr(s) {
-  return String(s || "")
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;");
 }
 
 function submitFeedback(sheet) {
@@ -260,7 +278,7 @@ function submitFeedback(sheet) {
   setTimeout(() => sheet.remove(), 1600);
 }
 
-function openAboutSheet() {
+function openAboutSheet(opts = {}) {
   document.getElementById("aboutSheet")?.remove();
   const sheet = document.createElement("div");
   sheet.id = "aboutSheet";
@@ -286,14 +304,14 @@ function openAboutSheet() {
     </div>
   `;
   document.body.appendChild(sheet);
+  if (opts.historyMode !== "none") betaPushOverlay("about");
   sheet.addEventListener("click", (e) => {
-    if (e.target === sheet) sheet.remove();
+    if (e.target === sheet) betaCloseOverlay(sheet);
   });
-  sheet.querySelector("#aboutClose")?.addEventListener("click", () => sheet.remove());
+  sheet.querySelector("#aboutClose")?.addEventListener("click", () => betaCloseOverlay(sheet));
   sheet.querySelector("#aboutCheckUpdate")?.addEventListener("click", async () => {
     if (typeof UpdateCheck !== "undefined") {
       await UpdateCheck.check();
-      // If no banner appeared, give light feedback
       if (!document.getElementById("updateBanner")) {
         alert(
           window.ROLLPHASE_BUILD
@@ -301,7 +319,7 @@ function openAboutSheet() {
             : "You’re on the latest version."
         );
       }
-      sheet.remove();
+      betaCloseOverlay(sheet);
     } else {
       location.reload();
     }

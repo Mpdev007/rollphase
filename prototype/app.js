@@ -1225,7 +1225,8 @@ function bindRateForm(gymId, sport) {
   });
 }
 
-function openGymDetail(id) {
+function openGymDetail(id, opts = {}) {
+  if (!opts.historyMode) opts.historyMode = "push";
   const g = findGym(id);
   if (!g) return;
   const sports = g.sports || [];
@@ -1353,6 +1354,12 @@ function openGymDetail(id) {
   `;
 
   showScreen("gym-detail");
+  if (opts.historyMode === "push") {
+    pushNav({ view: "gym", gymId: id, tab: "gyms" });
+  } else if (opts.historyMode === "replace") {
+    replaceNav({ view: "gym", gymId: id, tab: "gyms" });
+  }
+
   $$(".detail-tab").forEach((btn) => {
     btn.addEventListener("click", () => {
       $$(".detail-tab").forEach((b) => b.classList.remove("active"));
@@ -1369,7 +1376,7 @@ function openGymDetail(id) {
     state.checkedInGym = g.id;
     if (sport) applySkin(sport, { flash: false });
     if (typeof ReviewSystem !== "undefined") ReviewSystem.recordVisit(g.id, sport);
-    switchTab("home");
+    switchTab("home", { historyMode: "push" });
   });
   $("#savePlace")?.addEventListener("click", (e) => {
     toggleFavorite(g);
@@ -1385,7 +1392,7 @@ function openGymDetail(id) {
   });
   $("#addSportFromGym")?.addEventListener("click", () => {
     if (sport) addSportToProfile(sport, "—");
-    switchTab("profile");
+    switchTab("profile", { historyMode: "push" });
   });
 }
 
@@ -2174,7 +2181,7 @@ function renderProfile() {
   }
 }
 
-function openSportPicker({ addMode = false } = {}) {
+function openSportPicker({ addMode = false, historyMode = "push" } = {}) {
   state._pickerAddMode = addMode;
   state.sportQuery = "";
   const search = $("#sportSearch");
@@ -2187,6 +2194,22 @@ function openSportPicker({ addMode = false } = {}) {
       ? "Add sports you train — as many as you want"
       : "Focus for today is optional · explore all anytime";
   }
+  if (historyMode === "push") {
+    pushNav({ view: "picker", tab: state.tab || "home", addMode: !!addMode });
+  } else if (historyMode === "replace") {
+    replaceNav({ view: "picker", tab: state.tab || "home", addMode: !!addMode });
+  }
+}
+
+function closeSportPicker({ useHistory = true } = {}) {
+  const picker = $("#sportPicker");
+  if (!picker || picker.classList.contains("hidden")) return;
+  if (useHistory && !state._navSilent && history.state?.view === "picker") {
+    history.back();
+    return;
+  }
+  picker.classList.add("hidden");
+  state._pickerAddMode = false;
 }
 
 function renderSportGrid() {
@@ -2223,16 +2246,102 @@ function renderSportGrid() {
       .join("");
 }
 
-/* ---------- Nav ---------- */
+/* ---------- Nav + phone system back (History API) ---------- */
+const MAIN_TABS = new Set(["home", "gyms", "partners", "feed", "profile"]);
+
+function navUrl(entry) {
+  if (!entry) return "#/home";
+  if (entry.view === "gym" && entry.gymId) {
+    return `#/gym/${encodeURIComponent(entry.gymId)}`;
+  }
+  if (entry.view === "picker") return `#/${entry.tab || state.tab || "home"}/sports`;
+  if (entry.view === "overlay" && entry.name) {
+    return `#/${entry.tab || state.tab || "home"}/${entry.name}`;
+  }
+  const tab = entry.tab && MAIN_TABS.has(entry.tab) ? entry.tab : "home";
+  return `#/${tab}`;
+}
+
+function parseLocationToEntry() {
+  const raw = (location.hash || "").replace(/^#/, "");
+  if (!raw || raw === "/" || raw === "") return { view: "tab", tab: "home" };
+  const path = raw.startsWith("/") ? raw.slice(1) : raw;
+  // gym/<id>
+  if (path.startsWith("gym/")) {
+    return { view: "gym", gymId: decodeURIComponent(path.slice(4)), tab: "gyms" };
+  }
+  const parts = path.split("/").filter(Boolean);
+  const tab = MAIN_TABS.has(parts[0]) ? parts[0] : "home";
+  if (parts[1] === "sports") return { view: "picker", tab };
+  if (parts[1] === "feedback" || parts[1] === "about") {
+    return { view: "overlay", name: parts[1], tab };
+  }
+  return { view: "tab", tab };
+}
+
+function pushNav(entry) {
+  if (state._navSilent) return;
+  const url = navUrl(entry);
+  try {
+    history.pushState({ ...entry, rp: 1 }, "", url);
+  } catch {
+    /* ignore */
+  }
+}
+
+function replaceNav(entry) {
+  if (state._navSilent) return;
+  const url = navUrl(entry);
+  try {
+    history.replaceState({ ...entry, rp: 1 }, "", url);
+  } catch {
+    /* ignore */
+  }
+}
+
+function closeOverlays({ fromHistory = false } = {}) {
+  const picker = $("#sportPicker");
+  if (picker && !picker.classList.contains("hidden")) {
+    picker.classList.add("hidden");
+    state._pickerAddMode = false;
+  }
+  // Beta sheets
+  document.getElementById("feedbackSheet")?.remove();
+  document.getElementById("aboutSheet")?.remove();
+  if (!fromHistory && history.state?.view === "picker") {
+    // opened via push — back is preferred; no-op if already popping
+  }
+}
+
 function showScreen(name) {
   $$(".screen").forEach((s) => s.classList.remove("active"));
   $(`#screen-${name}`)?.classList.add("active");
+  // Scroll active screen to top on enter (native-app feel)
+  const el = $(`#screen-${name}`);
+  if (el) el.scrollTop = 0;
+  // Detail screens: keep tab highlight on parent tab
+  if (name === "gym-detail") {
+    $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === "gyms"));
+  }
 }
 
-function switchTab(tab) {
+/**
+ * @param {string} tab
+ * @param {{ historyMode?: 'push'|'replace'|'none' }} [opts]
+ */
+function switchTab(tab, opts = {}) {
+  const historyMode = opts.historyMode || "replace";
+  if (!MAIN_TABS.has(tab)) tab = "home";
+
+  closeOverlays({ fromHistory: state._navSilent });
+
   state.tab = tab;
   $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === tab));
   showScreen(tab);
+
+  if (historyMode === "push") pushNav({ view: "tab", tab });
+  else if (historyMode === "replace") replaceNav({ view: "tab", tab });
+
   if (tab === "home") {
     renderHome();
     if (!state.live.places.length && !state.live.loading) loadLivePlaces();
@@ -2247,6 +2356,109 @@ function switchTab(tab) {
     renderProfile();
     renderGear();
   }
+
+  if (typeof RollPhaseShell !== "undefined") {
+    try {
+      RollPhaseShell.setAppHeight();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * Apply history / hash entry (back button, deep link).
+ */
+function applyNavEntry(entry, { isPop = false } = {}) {
+  if (!entry) entry = { view: "tab", tab: "home" };
+  state._navSilent = true;
+  try {
+    if (entry.view === "gym" && entry.gymId) {
+      // Ensure gyms tab context, open detail without pushing again
+      state.tab = "gyms";
+      $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === "gyms"));
+      if (!findGym(entry.gymId) && state.live.places.length === 0) {
+        loadLivePlaces({ force: true }).then(() => {
+          state._navSilent = true;
+          try {
+            openGymDetail(entry.gymId, { historyMode: "none" });
+          } finally {
+            state._navSilent = false;
+          }
+        });
+      } else {
+        openGymDetail(entry.gymId, { historyMode: "none" });
+      }
+      return;
+    }
+
+    if (entry.view === "picker") {
+      switchTab(entry.tab || "home", { historyMode: "none" });
+      openSportPicker({ addMode: !!entry.addMode, historyMode: "none" });
+      return;
+    }
+
+    if (entry.view === "overlay") {
+      switchTab(entry.tab || state.tab || "home", { historyMode: "none" });
+      if (entry.name === "feedback" && typeof openFeedbackSheet === "function") {
+        openFeedbackSheet({ historyMode: "none" });
+      } else if (entry.name === "about" && typeof openAboutSheet === "function") {
+        openAboutSheet({ historyMode: "none" });
+      }
+      return;
+    }
+
+    // Main tab
+    closeOverlays({ fromHistory: true });
+    switchTab(entry.tab || "home", { historyMode: "none" });
+  } finally {
+    state._navSilent = false;
+  }
+}
+
+function goBackInApp() {
+  // Prefer browser history when we have stack depth
+  if (window.history.length > 1) {
+    history.back();
+    return;
+  }
+  // Fallback
+  if ($("#screen-gym-detail")?.classList.contains("active")) {
+    switchTab("gyms", { historyMode: "replace" });
+    return;
+  }
+  const picker = $("#sportPicker");
+  if (picker && !picker.classList.contains("hidden")) {
+    picker.classList.add("hidden");
+    return;
+  }
+  switchTab("home", { historyMode: "replace" });
+}
+
+function bindSystemBack() {
+  window.addEventListener("popstate", (e) => {
+    const entry = e.state?.rp ? e.state : parseLocationToEntry();
+    applyNavEntry(entry, { isPop: true });
+  });
+
+  // Android back often maps to history; also handle Escape for desktop
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      const picker = $("#sportPicker");
+      if (picker && !picker.classList.contains("hidden")) {
+        e.preventDefault();
+        if (history.state?.view === "picker") history.back();
+        else {
+          picker.classList.add("hidden");
+        }
+        return;
+      }
+      if ($("#screen-gym-detail")?.classList.contains("active")) {
+        e.preventDefault();
+        goBackInApp();
+      }
+    }
+  });
 }
 
 function renderAll() {
@@ -2273,7 +2485,7 @@ function bind() {
   $("#sportChip")?.addEventListener("click", () => openSportPicker({ addMode: false }));
 
   $("#sportPicker")?.addEventListener("click", (e) => {
-    if (e.target.id === "sportPicker") $("#sportPicker").classList.add("hidden");
+    if (e.target.id === "sportPicker") closeSportPicker({ useHistory: true });
   });
 
   $("#sportSearch")?.addEventListener("input", (e) => {
@@ -2286,18 +2498,33 @@ function bind() {
     if (!btn) return;
     const id = btn.dataset.sport || null;
     const addMode = btn.dataset.add === "1" || state._pickerAddMode;
-    $("#sportPicker")?.classList.add("hidden");
+    // Close picker: if we pushed picker state, pop so back stack stays clean
+    if (history.state?.view === "picker") {
+      state._navSilent = true;
+      $("#sportPicker")?.classList.add("hidden");
+      state._pickerAddMode = false;
+      // Replace picker history entry with current tab so stack is clean after selection
+      replaceNav({ view: "tab", tab: state.tab || "home" });
+      state._navSilent = false;
+    } else {
+      $("#sportPicker")?.classList.add("hidden");
+      state._pickerAddMode = false;
+    }
     if (addMode && id) {
       addSportToProfile(id, "—");
-      state._pickerAddMode = false;
       return;
     }
     setSport(id); // empty string → explore
   });
 
   $$(".tab").forEach((tab) => {
-    tab.addEventListener("click", () => switchTab(tab.dataset.tab));
+    tab.addEventListener("click", () => {
+      // Main tabs replace (no endless back stack); detail/overlays use push
+      switchTab(tab.dataset.tab, { historyMode: "replace" });
+    });
   });
+
+  bindSystemBack();
 
   document.body.addEventListener("click", (e) => {
     const demo = e.target.closest("[data-demo]");
@@ -2315,26 +2542,26 @@ function bind() {
     }
 
     if (e.target.closest("#browseAllSports")) {
-      openSportPicker({ addMode: false });
+      openSportPicker({ addMode: false, historyMode: "push" });
       return;
     }
     if (e.target.closest("#addSportCard")) {
-      openSportPicker({ addMode: hasProfileSports() });
+      openSportPicker({ addMode: hasProfileSports(), historyMode: "push" });
       return;
     }
 
     const jump = e.target.closest(".tab-jump");
     if (jump) {
-      switchTab(jump.dataset.tab);
+      switchTab(jump.dataset.tab, { historyMode: "replace" });
       return;
     }
     const pin = e.target.closest(".map-pin");
     if (pin?.dataset.gym) {
-      openGymDetail(pin.dataset.gym);
+      openGymDetail(pin.dataset.gym, { historyMode: "push" });
       return;
     }
     const card = e.target.closest(".card[data-gym]");
-    if (card?.dataset.gym) openGymDetail(card.dataset.gym);
+    if (card?.dataset.gym) openGymDetail(card.dataset.gym, { historyMode: "push" });
 
     const nbtn = e.target.closest("[data-notify]");
     if (nbtn && (state.tab === "home" || state.tab === "feed")) {
@@ -2346,7 +2573,15 @@ function bind() {
     }
   });
 
-  $("#gymBack")?.addEventListener("click", () => switchTab("gyms"));
+  $("#gymBack")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    // System-like back: pop history when we pushed gym detail
+    if (history.state?.view === "gym" || (location.hash || "").includes("/gym/")) {
+      history.back();
+    } else {
+      switchTab("gyms", { historyMode: "replace" });
+    }
+  });
 
   $("#refreshLivePlaces")?.addEventListener("click", () => {
     loadLivePlaces({ force: true, regeo: true });
@@ -2430,9 +2665,24 @@ function bind() {
     renderStageSwatches();
     applySkin(state.sport, { flash: false });
     bind();
+
+    // Deep link / restore hash, then seed history for system back button
+    const entry = parseLocationToEntry();
+    if (entry.view === "gym" || entry.view === "picker" || entry.view === "overlay") {
+      applyNavEntry(entry);
+    } else {
+      const tab = entry.tab && MAIN_TABS.has(entry.tab) ? entry.tab : state.tab || "home";
+      // Soft replace so the first back leaves the site only after user drills in
+      switchTab(tab, { historyMode: "replace" });
+    }
+
     safeRenderAll();
     // Live places immediately — real data, not stubs
     loadLivePlaces({ force: true });
+
+    if (typeof RollPhaseShell !== "undefined") {
+      RollPhaseShell.applyMode();
+    }
   } catch (e) {
     console.error("boot failed", e);
     document.body.insertAdjacentHTML(
