@@ -17,14 +17,16 @@ const state = {
   mode: "athlete",
   profile: safeClone(typeof PROFILE_DEFAULT !== "undefined" ? PROFILE_DEFAULT : emptyProfile()),
   _rendering: false,
-  /** Live venues from PlacesLive (OSM / Google / Geoapify) — never fake stubs */
+  /** Live venues from PlacesLive — never fake stubs */
   live: {
     places: [],
     provider: null,
+    sources: [],
     loading: false,
     error: null,
     lat: null,
     lng: null,
+    label: null,
     accuracy: null,
     lastSport: undefined,
     lastFetchedAt: null,
@@ -493,19 +495,125 @@ function findGym(id) {
   return allLivePlaces().find((x) => x.id === id) || null;
 }
 
+/**
+ * Live venues: rank sport matches first, but NEVER hide real gyms when tags are incomplete.
+ * (OSM often lacks "bjj" tags — filtering them out made the list look empty/fake.)
+ */
 function gymsForSport(sport = focusId()) {
-  const list = allLivePlaces();
-  if (!sport) {
-    return [...list].sort((a, b) => a.mi - b.mi);
-  }
-  return list.filter((g) => (g.sports || []).includes(sport)).sort((a, b) => a.mi - b.mi);
+  const list = [...allLivePlaces()];
+  if (!sport) return list.sort((a, b) => a.mi - b.mi);
+  return list.sort((a, b) => {
+    const am = (a.sports || []).includes(sport) ? 0 : 1;
+    const bm = (b.sports || []).includes(sport) ? 0 : 1;
+    if (am !== bm) return am - bm;
+    return a.mi - b.mi;
+  });
 }
 
 function providerLabel(provider) {
   if (provider === "google") return "Google Places";
   if (provider === "geoapify") return "Geoapify";
+  if (provider === "nominatim") return "OpenStreetMap";
+  if (provider === "photon") return "OpenStreetMap";
   if (provider === "osm") return "OpenStreetMap";
   return "Live map";
+}
+
+/** Leaflet map instance for gyms tab */
+let liveMap = null;
+let liveMapMarkers = [];
+
+function destroyLiveMap() {
+  if (liveMap) {
+    try {
+      liveMap.remove();
+    } catch {
+      /* ignore */
+    }
+  }
+  liveMap = null;
+  liveMapMarkers = [];
+}
+
+function ensureLiveMap() {
+  const el = document.getElementById("liveMap");
+  if (!el || typeof L === "undefined") return null;
+  if (liveMap) {
+    setTimeout(() => liveMap.invalidateSize(), 80);
+    return liveMap;
+  }
+  const lat = state.live.lat ?? 30.2672;
+  const lng = state.live.lng ?? -97.7431;
+  liveMap = L.map(el, {
+    zoomControl: true,
+    attributionControl: true,
+  }).setView([lat, lng], 12);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(liveMap);
+  setTimeout(() => liveMap.invalidateSize(), 100);
+  return liveMap;
+}
+
+function renderLiveMap(list) {
+  const map = ensureLiveMap();
+  if (!map) return;
+  liveMapMarkers.forEach((m) => {
+    try {
+      map.removeLayer(m);
+    } catch {
+      /* ignore */
+    }
+  });
+  liveMapMarkers = [];
+  const bounds = [];
+  if (state.live.lat != null && state.live.lng != null) {
+    const you = L.circleMarker([state.live.lat, state.live.lng], {
+      radius: 8,
+      color: "#2ee6c5",
+      fillColor: "#2ee6c5",
+      fillOpacity: 0.9,
+      weight: 2,
+    }).addTo(map);
+    you.bindPopup("You are here");
+    liveMapMarkers.push(you);
+    bounds.push([state.live.lat, state.live.lng]);
+  }
+  list.forEach((g) => {
+    if (g.lat == null || g.lng == null) return;
+    const m = L.marker([g.lat, g.lng]).addTo(map);
+    const contact = [
+      g.phone ? `☎ ${g.phone}` : null,
+      g.website ? "Website" : null,
+      `${g.mi} mi`,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    m.bindPopup(
+      `<strong>${escapeHtml(g.name)}</strong><br/><span style="font-size:12px">${escapeHtml(
+        contact || g.address || "Live venue"
+      )}</span><br/><button type="button" data-map-open="${escapeHtml(
+        g.id
+      )}" style="margin-top:6px">Open</button>`
+    );
+    m.on("popupopen", () => {
+      const root = m.getPopup()?.getElement?.();
+      root?.querySelector("[data-map-open]")?.addEventListener("click", () => {
+        openGymDetail(g.id, { historyMode: "push" });
+      });
+    });
+    liveMapMarkers.push(m);
+    bounds.push([g.lat, g.lng]);
+  });
+  if (bounds.length) {
+    try {
+      map.fitBounds(bounds, { padding: [36, 36], maxZoom: 14 });
+    } catch {
+      /* ignore */
+    }
+  }
+  setTimeout(() => map.invalidateSize(), 120);
 }
 
 /**
@@ -513,20 +621,20 @@ function providerLabel(provider) {
  */
 async function loadLivePlaces(opts = {}) {
   if (typeof PlacesLive === "undefined") {
-    state.live.error = "Places module missing — hard refresh.";
+    state.live.error = "Places module missing — hard refresh (Get latest).";
     state.live.loading = false;
     return;
   }
   const sport = opts.sport !== undefined ? opts.sport : focusId();
   const force = !!opts.force;
 
-  // Skip redundant fetch if same sport + have results + not forced + < 3 min
   const fresh =
     state.live.lastFetchedAt &&
-    Date.now() - state.live.lastFetchedAt < 3 * 60 * 1000 &&
+    Date.now() - state.live.lastFetchedAt < 2 * 60 * 1000 &&
     state.live.lastSport === sport &&
     state.live.places.length &&
-    !force;
+    !force &&
+    !opts.lat;
   if (fresh) return;
 
   state.live.loading = true;
@@ -536,15 +644,34 @@ async function loadLivePlaces(opts = {}) {
   if (state.tab === "home") renderHome();
 
   try {
-    if (state.live.lat == null || state.live.lng == null || opts.regeo) {
-      const pos = await PlacesLive.getCurrentPosition();
-      state.live.lat = pos.lat;
-      state.live.lng = pos.lng;
-      state.live.accuracy = pos.accuracy;
+    // Explicit lat/lng (city search) wins
+    if (opts.lat != null && opts.lng != null) {
+      state.live.lat = opts.lat;
+      state.live.lng = opts.lng;
+      state.live.label = opts.label || state.live.label || null;
+    } else if (state.live.lat == null || state.live.lng == null || opts.regeo) {
+      try {
+        const pos = await PlacesLive.getCurrentPosition();
+        state.live.lat = pos.lat;
+        state.live.lng = pos.lng;
+        state.live.accuracy = pos.accuracy;
+        try {
+          const label = await PlacesLive.reverseGeocode(pos.lat, pos.lng);
+          if (label) state.live.label = label;
+        } catch {
+          /* ignore */
+        }
+      } catch (geoErr) {
+        // Keep previous coords if we had them
+        if (state.live.lat == null || state.live.lng == null) {
+          throw geoErr;
+        }
+      }
     }
+
     const radiusM =
-      (typeof PlacesLive.config === "function" && PlacesLive.config().defaultRadiusM) || 10000;
-    const { provider, places } = await PlacesLive.fetchNearby({
+      (typeof PlacesLive.config === "function" && PlacesLive.config().defaultRadiusM) || 12000;
+    const { provider, places, sources } = await PlacesLive.fetchNearby({
       lat: state.live.lat,
       lng: state.live.lng,
       radiusM,
@@ -552,23 +679,57 @@ async function loadLivePlaces(opts = {}) {
     });
     state.live.places = places;
     state.live.provider = provider;
+    state.live.sources = sources || [provider];
     state.live.lastSport = sport;
     state.live.lastFetchedAt = Date.now();
-    state.live.error = null;
+    state.live.error = places.length
+      ? null
+      : "No venues found in this radius — try a wider area or another city.";
   } catch (e) {
     console.warn("loadLivePlaces", e);
     const code = e && e.code;
     if (code === 1) {
       state.live.error =
-        "Location permission denied. Enable location for this site to see real gyms near you.";
+        "Location permission denied. Type a city below (e.g. Austin, TX) or enable location.";
     } else if (code === 2 || code === 3) {
-      state.live.error = "Could not get GPS fix. Check location services and try again.";
+      state.live.error =
+        "Could not get GPS. Type a city (e.g. Austin, TX) and search, or try again.";
+    } else if (code === 0) {
+      state.live.error = "Location unavailable on this device — enter a city below.";
     } else {
       state.live.error =
-        (e && e.message) || "Could not load live venues. Check network and try again.";
+        (e && e.message) || "Could not load live venues. Check network and try Get latest.";
     }
   } finally {
     state.live.loading = false;
+    updateLiveStatusBar();
+    safeRenderAll();
+  }
+}
+
+async function searchCityAndLoad() {
+  const input = $("#citySearchInput");
+  const q = (input?.value || "").trim();
+  if (!q) {
+    state.live.error = "Enter a city or area (e.g. Austin TX, Miami FL).";
+    updateLiveStatusBar();
+    return;
+  }
+  if (typeof PlacesLive === "undefined") return;
+  state.live.loading = true;
+  state.live.error = null;
+  updateLiveStatusBar();
+  try {
+    const place = await PlacesLive.geocodePlace(q);
+    await loadLivePlaces({
+      force: true,
+      lat: place.lat,
+      lng: place.lng,
+      label: place.label,
+    });
+  } catch (e) {
+    state.live.loading = false;
+    state.live.error = e?.message || "Could not find that place.";
     updateLiveStatusBar();
     safeRenderAll();
   }
@@ -583,7 +744,7 @@ function updateLiveStatusBar() {
     el.classList.remove("error");
     return;
   }
-  if (L.error) {
+  if (L.error && !L.places.length) {
     el.textContent = L.error;
     el.classList.add("error");
     return;
@@ -591,14 +752,13 @@ function updateLiveStatusBar() {
   el.classList.remove("error");
   if (L.places.length) {
     const where =
-      L.lat != null
-        ? `${L.lat.toFixed(3)}, ${L.lng.toFixed(3)}`
-        : "your area";
-    el.innerHTML = `<span class="live-dot"></span> ${L.places.length} live · ${escapeHtml(
+      L.label ||
+      (L.lat != null ? `${L.lat.toFixed(3)}, ${L.lng.toFixed(3)}` : "your area");
+    el.innerHTML = `<span class="live-dot"></span> <strong>${L.places.length} live</strong> · ${escapeHtml(
       providerLabel(L.provider)
     )} · ${escapeHtml(where)}`;
   } else {
-    el.textContent = "Tap Refresh to load real venues near you.";
+    el.textContent = "Allow location or enter a city — results are live map data only.";
   }
 }
 
@@ -976,7 +1136,7 @@ function renderGyms() {
     listEl.classList.remove("hidden");
     listEl.innerHTML = empty(
       "Loading live venues…",
-      "Using your location and open map data (or Google Places if configured)."
+      "Using your GPS or city search + OpenStreetMap (or Google Places if configured)."
     );
     return;
   }
@@ -986,48 +1146,48 @@ function renderGyms() {
     listEl.classList.remove("hidden");
     listEl.innerHTML =
       empty("Couldn’t load places", state.live.error) +
-      `<button type="button" class="btn-primary" id="retryLivePlaces" style="margin-top:12px">Enable location &amp; retry</button>`;
-    $("#retryLivePlaces")?.addEventListener("click", () => loadLivePlaces({ force: true, regeo: true }));
+      `<button type="button" class="btn-primary" id="retryLivePlaces" style="margin-top:12px">Use my location</button>
+       <p class="muted small" style="margin-top:10px">Or type a city above and tap Search area.</p>`;
+    $("#retryLivePlaces")?.addEventListener("click", () =>
+      loadLivePlaces({ force: true, regeo: true })
+    );
     return;
   }
 
   if (state.gymView === "map") {
     listEl.classList.add("hidden");
     mapEl.classList.remove("hidden");
-    const pins = $("#mapPins");
-    if (!list.length) {
-      if (pins) pins.innerHTML = "";
+    if (typeof L === "undefined") {
+      mapEl.innerHTML = empty(
+        "Map library loading…",
+        "Pull Get latest if the map stays blank, or use List view."
+      );
       return;
     }
-    // Project real lat/lng into a simple local map relative to user
-    const lats = list.map((g) => g.lat).filter((n) => n != null);
-    const lngs = list.map((g) => g.lng).filter((n) => n != null);
-    const minLat = Math.min(...lats, state.live.lat ?? lats[0]);
-    const maxLat = Math.max(...lats, state.live.lat ?? lats[0]);
-    const minLng = Math.min(...lngs, state.live.lng ?? lngs[0]);
-    const maxLng = Math.max(...lngs, state.live.lng ?? lngs[0]);
-    const pad = 0.0001;
-    const dLat = Math.max(maxLat - minLat, pad);
-    const dLng = Math.max(maxLng - minLng, pad);
-    if (pins) {
-      pins.innerHTML = list
-        .map((g) => {
-          const left = 8 + ((g.lng - minLng) / dLng) * 84;
-          const top = 8 + (1 - (g.lat - minLat) / dLat) * 72;
-          return `<div class="map-pin" style="left:${left}%;top:${top}%" data-gym="${escapeHtml(
-            g.id
-          )}" title="${escapeHtml(g.name)}"></div>`;
-        })
-        .join("");
+    // Ensure container for Leaflet
+    if (!document.getElementById("liveMap")) {
+      mapEl.innerHTML = `<div id="liveMap" class="live-map" role="application" aria-label="Live venue map"></div>
+        <p class="map-caption">Live OpenStreetMap · tap a pin for details</p>`;
     }
+    renderLiveMap(list);
   } else {
     mapEl.classList.add("hidden");
     listEl.classList.remove("hidden");
+    const focus = focusId();
+    const matchCount = focus
+      ? list.filter((g) => (g.sports || []).includes(focus)).length
+      : list.length;
+    const note =
+      focus && matchCount < list.length
+        ? `<p class="hint" style="margin-bottom:10px">${matchCount} match ${escapeHtml(
+            sportMeta(focus)?.short || focus
+          )} · ${list.length - matchCount} other live venues nearby (map tags vary)</p>`
+        : "";
     listEl.innerHTML = list.length
-      ? list.map((g) => gymCardHTML(g, focusId())).join("")
+      ? note + list.map((g) => gymCardHTML(g, focus)).join("")
       : empty(
           "No venues in this radius",
-          "Clear filters, widen sport focus, or refresh. Results are live map data only — no fake listings."
+          "Try Search area with a city, clear filters, or refresh. Only live map data — never invented names."
         );
   }
 }
@@ -2593,6 +2753,16 @@ function bind() {
 
   $("#refreshLivePlaces")?.addEventListener("click", () => {
     loadLivePlaces({ force: true, regeo: true });
+  });
+  $("#btnUseMyLocation")?.addEventListener("click", () => {
+    loadLivePlaces({ force: true, regeo: true });
+  });
+  $("#btnCitySearch")?.addEventListener("click", () => searchCityAndLoad());
+  $("#citySearchInput")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      searchCityAndLoad();
+    }
   });
 
   $("#gymViewSeg")?.addEventListener("click", (e) => {

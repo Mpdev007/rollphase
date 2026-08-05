@@ -1,4 +1,4 @@
-/* RollPhase catalog — sports, venues, events, social (mock intelligence layer)
+/* RollPhase catalog — sports metadata only. Venues/events/partners are live or empty (no fake listings).
  * depth: "full" = rich events + pro athlete ROI surfaces
  *        "template" = consistent shell, lighter mock (not fully implemented)
  */

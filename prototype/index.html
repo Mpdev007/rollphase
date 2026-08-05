@@ -13,6 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="skins.css" />
 </head>
 <body>
@@ -150,12 +151,18 @@
                 <p class="hint" id="livePlacesStatus">Live venues near you</p>
                 <button type="button" class="text-btn" id="refreshLivePlaces">Refresh</button>
               </div>
+              <div class="location-bar">
+                <button type="button" class="btn-ghost loc-btn" id="btnUseMyLocation">Use my location</button>
+                <div class="city-search-row">
+                  <input type="search" id="citySearchInput" placeholder="City or area (e.g. Austin TX)" enterkeyhint="search" autocomplete="address-level2" />
+                  <button type="button" class="btn-primary loc-search" id="btnCitySearch">Search</button>
+                </div>
+              </div>
               <div class="filter-row" id="gymFilters"></div>
               <div id="gymList" class="list"></div>
-              <div id="gymMap" class="map-mock hidden">
-                <div class="map-grid"></div>
-                <div class="map-pins" id="mapPins"></div>
-                <p class="map-caption">Pins from live coordinates · same results as list</p>
+              <div id="gymMap" class="map-panel hidden">
+                <div id="liveMap" class="live-map" role="application" aria-label="Live venue map"></div>
+                <p class="map-caption">Live OpenStreetMap · real pins · same results as list</p>
               </div>
             </section>
 
@@ -331,6 +338,7 @@
   </div>
 
   <!-- Optional: copy config.example.js → config.js with Google Places / Geoapify keys -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="config.js" onerror="/* optional */"></script>
   <script src="mobile-shell.js"></script>
   <script src="update-check.js"></script>

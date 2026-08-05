@@ -650,6 +650,85 @@ body.beta-locked .stage {
 .live-status-row .hint.error {
   color: #f0a0a0;
 }
+.location-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.location-bar .loc-btn {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 0.8rem;
+}
+.city-search-row {
+  display: flex;
+  gap: 8px;
+}
+.city-search-row input {
+  flex: 1;
+  min-width: 0;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+.city-search-row .loc-search {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.map-panel {
+  position: relative;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #0a0e14;
+  min-height: 320px;
+}
+.live-map {
+  width: 100%;
+  height: min(52vh, 420px);
+  min-height: 280px;
+  background: #0a0e14;
+  z-index: 1;
+}
+.map-caption {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 0.68rem;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+/* Leaflet dark-friendly */
+.leaflet-container {
+  font-family: inherit;
+  background: #0a0e14;
+}
+.leaflet-popup-content-wrapper {
+  border-radius: 12px;
+  background: #12161e;
+  color: #f3f5f7;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.leaflet-popup-tip {
+  background: #12161e;
+}
+.leaflet-popup-content button {
+  border: none;
+  background: #2ee6c5;
+  color: #041210;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-family: inherit;
+}
 .contact-links {
   display: flex;
   flex-direction: column;

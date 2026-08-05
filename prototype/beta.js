@@ -78,7 +78,7 @@ function renderBetaGate() {
 
         <h2>Please acknowledge</h2>
         <ul>
-          <li><strong>Early access</strong> — features and sample content may change; some listings are for demo purposes.</li>
+          <li><strong>Early access</strong> — features change quickly; venue listings are live map data, not invented names.</li>
           <li><strong>Train safely</strong> — meeting people or visiting gyms is at your own risk. Use real-world judgment.</li>
           <li><strong>Age-aware matching</strong> — youth and adult partner discovery are separated for safety.</li>
           <li><strong>Your brands</strong> — only upload logos and names you have rights to use.</li>
