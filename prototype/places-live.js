@@ -471,10 +471,8 @@ out center tags 40;`;
             osmUrl: `https://www.openstreetmap.org/${osmType}/${el.id}`,
             sports: sports.length ? sports : ["weightlifting"],
             tagBits: [
-              tags.leisure || tags.sport,
               phone ? "Phone" : null,
               website ? "Website" : null,
-              "Live",
             ],
             amenities: tags.leisure === "dojo" ? ["mats"] : tags.leisure === "fitness_centre" ? ["racks"] : [],
           });
