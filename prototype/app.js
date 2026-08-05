@@ -1984,6 +1984,14 @@ function paintNixSamples(samples) {
 }
 
 function renderProfile() {
+  if (typeof UpdateCheck !== "undefined") {
+    try {
+      UpdateCheck.mountProfileCard();
+      UpdateCheck.paintBuildLabel();
+    } catch {
+      /* ignore */
+    }
+  }
   const p = state.profile;
   const sportsHost = $("#profileSports");
   if (sportsHost) {

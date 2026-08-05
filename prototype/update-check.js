@@ -1,18 +1,18 @@
 /**
- * RollPhase update check — detect new deploys while the app stays open on a phone.
- * Polls version.json (cache-busted). Shows "Update available · Restart".
+ * RollPhase update check + manual refresh.
+ * - Auto-polls version.json after every Git deploy
+ * - Always-available "Get latest" forces a clean reload (dev-friendly)
  */
 const UpdateCheck = (() => {
   const STORAGE_BOOT = "rollphase.bootBuildId";
   const STORAGE_DISMISS = "rollphase.updateDismissed";
-  const POLL_MS = 45 * 1000; // 45s — snappy for beta phones
+  const POLL_MS = 20 * 1000; // 20s while building — catch deploys fast
   let boot = null;
   let timer = null;
   let checking = false;
   let bannerShown = false;
 
   function versionUrl() {
-    // Relative to current page (works on Render, GH Pages, file server)
     const base = document.querySelector("base")?.href || location.href;
     const u = new URL("version.json", base);
     u.searchParams.set("_", String(Date.now()));
@@ -22,7 +22,11 @@ const UpdateCheck = (() => {
   async function fetchVersion() {
     const res = await fetch(versionUrl(), {
       cache: "no-store",
-      headers: { Accept: "application/json", "Cache-Control": "no-cache" },
+      headers: {
+        Accept: "application/json",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
     });
     if (!res.ok) throw new Error(`version ${res.status}`);
     return res.json();
@@ -33,7 +37,28 @@ const UpdateCheck = (() => {
     return String(v.buildId || v.version || "");
   }
 
-  async function hardReload() {
+  function setStatus(text) {
+    const el = document.getElementById("appRefreshStatus");
+    if (el) el.textContent = text || "";
+    const chip = document.getElementById("btnRefreshApp");
+    if (chip && text) chip.setAttribute("data-status", text);
+  }
+
+  function paintBuildLabel() {
+    const v = window.ROLLPHASE_BUILD || boot;
+    const label = document.getElementById("appBuildLabel");
+    if (label && v) {
+      label.textContent = `Build ${v.buildId || v.version || "—"}`;
+    }
+    const about = document.getElementById("appBuildLabelAbout");
+    if (about && v) {
+      about.textContent = `${v.version || ""} · ${v.buildId || ""}`;
+    }
+  }
+
+  /** Nuclear clear — caches + service workers — then hard navigate */
+  async function hardReload(reason) {
+    setStatus(reason || "Updating…");
     try {
       if ("caches" in window) {
         const keys = await caches.keys();
@@ -45,18 +70,26 @@ const UpdateCheck = (() => {
     try {
       if ("serviceWorker" in navigator) {
         const regs = await navigator.serviceWorker.getRegistrations();
-        for (const r of regs) {
-          if (r.waiting) {
-            r.waiting.postMessage({ type: "SKIP_WAITING" });
-          }
-        }
+        await Promise.all(
+          regs.map(async (r) => {
+            try {
+              if (r.waiting) r.waiting.postMessage({ type: "SKIP_WAITING" });
+            } catch {
+              /* ignore */
+            }
+            try {
+              await r.unregister();
+            } catch {
+              /* ignore */
+            }
+          })
+        );
       }
     } catch {
       /* ignore */
     }
     try {
       localStorage.removeItem(STORAGE_DISMISS);
-      // Next successful load will write the new buildId
       localStorage.removeItem(STORAGE_BOOT);
     } catch {
       /* ignore */
@@ -66,6 +99,8 @@ const UpdateCheck = (() => {
     } catch {
       /* ignore */
     }
+
+    // Fresh HTML document (bust query) — keeps path/hash for deep links
     const url = new URL(location.href);
     url.searchParams.set("_rp", Date.now().toString(36));
     location.replace(url.toString());
@@ -79,9 +114,7 @@ const UpdateCheck = (() => {
   function showBanner(remote) {
     if (bannerShown) {
       const msg = document.querySelector("#updateBanner .update-msg");
-      if (msg && remote?.message) {
-        msg.textContent = remote.message;
-      }
+      if (msg && remote?.message) msg.textContent = remote.message;
       return;
     }
     bannerShown = true;
@@ -109,7 +142,7 @@ const UpdateCheck = (() => {
     el.querySelector("#updateRestart")?.addEventListener("click", () => {
       el.querySelector("#updateRestart").textContent = "Updating…";
       el.querySelector("#updateRestart").disabled = true;
-      hardReload();
+      hardReload("Installing update…");
     });
     el.querySelector("#updateLater")?.addEventListener("click", () => {
       try {
@@ -137,73 +170,197 @@ const UpdateCheck = (() => {
       const raw = localStorage.getItem(STORAGE_DISMISS);
       if (!raw) return false;
       const d = JSON.parse(raw);
-      // Dismiss only applies to this specific build; new build shows again
       return d?.buildId === remoteKey;
     } catch {
       return false;
     }
   }
 
-  async function check() {
-    if (checking) return;
+  function adoptRemote(remote) {
+    boot = remote;
+    window.ROLLPHASE_BUILD = remote;
+    if (typeof BETA !== "undefined" && remote.version) {
+      BETA.version = remote.version;
+      BETA.buildId = remote.buildId;
+      BETA.buildLabel = `Closed beta · ${remote.version}`;
+    }
+    paintBuildLabel();
+    try {
+      localStorage.setItem(STORAGE_BOOT, buildKey(remote));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /**
+   * @param {{ silent?: boolean, forceBanner?: boolean }} [opts]
+   * @returns {Promise<'update'|'current'|'error'>}
+   */
+  async function check(opts = {}) {
+    if (checking) return "error";
     checking = true;
     try {
+      // Nudge service worker to look for new sw.js
+      if ("serviceWorker" in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.getRegistration();
+          if (reg) await reg.update();
+        } catch {
+          /* ignore */
+        }
+      }
+
       const remote = await fetchVersion();
       const remoteKey = buildKey(remote);
-      if (!remoteKey) return;
+      if (!remoteKey) return "error";
 
       if (!boot) {
-        // Previous session's build (survives soft reloads / bfcache)
         let previous = null;
         try {
           previous = localStorage.getItem(STORAGE_BOOT);
         } catch {
           previous = null;
         }
-        boot = remote;
-        window.ROLLPHASE_BUILD = remote;
-        if (typeof BETA !== "undefined" && remote.version) {
-          BETA.version = remote.version;
-          BETA.buildId = remote.buildId;
-          BETA.buildLabel = `Closed beta · ${remote.version}`;
-        }
-        // If server is already newer than what this tab last ran, prompt immediately
+        adoptRemote(remote);
         if (previous && previous !== remoteKey && !wasDismissed(remoteKey)) {
           showBanner(remote);
-        } else {
-          try {
-            localStorage.setItem(STORAGE_BOOT, remoteKey);
-          } catch {
-            /* ignore */
-          }
+          return "update";
         }
-        return;
+        return "current";
       }
 
       const bootKey = buildKey(boot);
-      if (remoteKey !== bootKey && !wasDismissed(remoteKey)) {
-        showBanner(remote);
+      if (remoteKey !== bootKey) {
+        // Server is ahead of this running tab
+        window.ROLLPHASE_BUILD = remote;
+        paintBuildLabel();
+        if (!wasDismissed(remoteKey) || opts.forceBanner) {
+          showBanner(remote);
+        }
+        return "update";
       }
+      return "current";
     } catch (e) {
-      // Offline / host lag — silent
       console.debug("update-check", e);
+      return "error";
     } finally {
       checking = false;
     }
   }
 
+  /**
+   * Manual "Get latest" — always reloads clean if server differs OR user forces.
+   * @param {{ force?: boolean }} [opts] force=true always reloads (dev “I need it now”)
+   */
+  async function getLatest(opts = {}) {
+    const force = opts.force !== false; // default true for button
+    const btn = document.getElementById("btnRefreshApp");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Checking…";
+    }
+    setStatus("Checking for latest…");
+
+    try {
+      const remote = await fetchVersion();
+      const remoteKey = buildKey(remote);
+      const bootKey = buildKey(boot || window.ROLLPHASE_BUILD);
+      const previous = (() => {
+        try {
+          return localStorage.getItem(STORAGE_BOOT);
+        } catch {
+          return null;
+        }
+      })();
+
+      if (force || (remoteKey && remoteKey !== bootKey) || (remoteKey && previous && previous !== remoteKey)) {
+        setStatus("Downloading latest…");
+        if (btn) btn.textContent = "Updating…";
+        // Clear dismiss so user isn't stuck on "later"
+        try {
+          localStorage.removeItem(STORAGE_DISMISS);
+        } catch {
+          /* ignore */
+        }
+        await hardReload("Loading latest…");
+        return;
+      }
+
+      // Already latest — still offer a soft reload option feels dead; do light reload for assets
+      setStatus("Already on latest · refreshing…");
+      if (btn) btn.textContent = "Refreshing…";
+      await hardReload("Refreshing…");
+    } catch (e) {
+      console.warn("getLatest", e);
+      setStatus("Couldn’t reach server — force refreshing…");
+      if (btn) btn.textContent = "Force refresh…";
+      // Still hard reload so local caches die
+      await hardReload("Force refresh…");
+    }
+  }
+
+  function injectRefreshChrome() {
+    // Floating control always visible during beta/dev
+    let chrome = document.getElementById("betaChrome");
+    if (!chrome) {
+      chrome = document.createElement("div");
+      chrome.id = "betaChrome";
+      document.body.appendChild(chrome);
+    }
+    if (!document.getElementById("btnRefreshApp")) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.id = "btnRefreshApp";
+      btn.title = "Download the latest version from the server";
+      btn.textContent = "Get latest";
+      btn.addEventListener("click", () => getLatest({ force: true }));
+      // Put refresh first — most useful while developing
+      chrome.insertBefore(btn, chrome.firstChild);
+    }
+    paintBuildLabel();
+  }
+
+  function injectProfileRefreshCard() {
+    // Called when profile is rendered — app.js can call UpdateCheck.mountProfileCard()
+    const host = document.getElementById("appUpdateCard");
+    if (!host || host.dataset.ready === "1") return;
+    host.dataset.ready = "1";
+    host.innerHTML = `
+      <div class="app-update-card">
+        <div>
+          <strong>App version</strong>
+          <p class="muted small" id="appBuildLabel">Checking…</p>
+          <p class="muted small" id="appRefreshStatus"></p>
+        </div>
+        <button type="button" class="btn-primary" id="btnGetLatestProfile" style="width:100%;margin-top:10px;padding:12px">
+          Get latest version
+        </button>
+        <p class="muted small" style="margin-top:8px">
+          After we push to Git, the host deploys automatically. Tap this anytime if the auto update banner doesn’t show.
+        </p>
+      </div>
+    `;
+    host.querySelector("#btnGetLatestProfile")?.addEventListener("click", () =>
+      getLatest({ force: true })
+    );
+    paintBuildLabel();
+  }
+
   function start() {
+    injectRefreshChrome();
     check();
     if (timer) clearInterval(timer);
-    timer = setInterval(check, POLL_MS);
+    timer = setInterval(() => check(), POLL_MS);
 
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") check();
     });
     window.addEventListener("focus", () => check());
     window.addEventListener("online", () => check());
+    // After deploy, first paint may be stale — recheck a few times
+    setTimeout(() => check(), 5000);
+    setTimeout(() => check(), 15000);
 
-    // Service worker registration (helps clear old assets after deploys)
     if ("serviceWorker" in navigator) {
       const swUrl = new URL("sw.js", location.href);
       navigator.serviceWorker
@@ -214,17 +371,14 @@ const UpdateCheck = (() => {
             if (!worker) return;
             worker.addEventListener("statechange", () => {
               if (worker.state === "installed" && navigator.serviceWorker.controller) {
-                // New SW waiting — treat as update signal
-                check();
-                showBanner(
-                  window.ROLLPHASE_BUILD
-                    ? { ...window.ROLLPHASE_BUILD, message: "A newer version is ready." }
-                    : { message: "A newer version is ready.", buildId: "sw" }
-                );
+                check({ forceBanner: true });
+                showBanner({
+                  message: "A newer version is ready.",
+                  buildId: buildKey(window.ROLLPHASE_BUILD) + "-sw",
+                });
               }
             });
           });
-          // Proactive update check
           try {
             reg.update();
           } catch {
@@ -234,7 +388,6 @@ const UpdateCheck = (() => {
         .catch((e) => console.debug("sw register", e));
 
       navigator.serviceWorker.addEventListener("controllerchange", () => {
-        // After skipWaiting — one reload is enough (avoid loops)
         if (sessionStorage.getItem("rollphase.swReloaded") === "1") return;
         sessionStorage.setItem("rollphase.swReloaded", "1");
         location.reload();
@@ -242,10 +395,17 @@ const UpdateCheck = (() => {
     }
   }
 
-  return { start, check, hardReload, showBanner };
+  return {
+    start,
+    check,
+    hardReload,
+    showBanner,
+    getLatest,
+    mountProfileCard: injectProfileRefreshCard,
+    paintBuildLabel,
+  };
 })();
 
-// Boot after DOM ready (works if deferred or end-of-body)
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => UpdateCheck.start());
 } else {

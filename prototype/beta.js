@@ -298,28 +298,44 @@ function openAboutSheet(opts = {}) {
         <p>This is a closed beta. Content and features will grow. Train smart, be respectful, and tell us what matters with <strong>Feedback</strong>.</p>
         <p class="muted small">When a new version is published, the app will offer <strong>Update available · Restart</strong> so you don’t have to reinstall.</p>
       </div>
-      <button type="button" class="btn-ghost" id="aboutClose" style="width:100%;padding:12px">Close</button>
-      <button type="button" class="btn-ghost" id="aboutCheckUpdate" style="width:100%;padding:12px;margin-top:8px">Check for update</button>
+      <p class="muted small" id="appBuildLabelAbout" style="margin:8px 0 12px"></p>
+      <button type="button" class="btn-primary" id="aboutGetLatest" style="width:100%;padding:12px">Get latest version</button>
+      <button type="button" class="btn-ghost" id="aboutClose" style="width:100%;padding:12px;margin-top:8px">Close</button>
+      <button type="button" class="btn-ghost" id="aboutCheckUpdate" style="width:100%;padding:12px;margin-top:8px">Check for update only</button>
       <button type="button" class="btn-ghost" id="aboutReset" style="width:100%;padding:12px;margin-top:8px">Show welcome again</button>
     </div>
   `;
   document.body.appendChild(sheet);
   if (opts.historyMode !== "none") betaPushOverlay("about");
+  if (typeof UpdateCheck !== "undefined") {
+    try {
+      UpdateCheck.paintBuildLabel();
+    } catch {
+      /* ignore */
+    }
+  }
   sheet.addEventListener("click", (e) => {
     if (e.target === sheet) betaCloseOverlay(sheet);
   });
   sheet.querySelector("#aboutClose")?.addEventListener("click", () => betaCloseOverlay(sheet));
+  sheet.querySelector("#aboutGetLatest")?.addEventListener("click", () => {
+    if (typeof UpdateCheck !== "undefined") {
+      UpdateCheck.getLatest({ force: true });
+    } else {
+      location.reload();
+    }
+  });
   sheet.querySelector("#aboutCheckUpdate")?.addEventListener("click", async () => {
     if (typeof UpdateCheck !== "undefined") {
-      await UpdateCheck.check();
-      if (!document.getElementById("updateBanner")) {
+      const result = await UpdateCheck.check({ forceBanner: true });
+      if (result === "current" && !document.getElementById("updateBanner")) {
         alert(
           window.ROLLPHASE_BUILD
-            ? `You’re on the latest build (${window.ROLLPHASE_BUILD.version}).`
+            ? `You’re on the latest build (${window.ROLLPHASE_BUILD.buildId || window.ROLLPHASE_BUILD.version}).`
             : "You’re on the latest version."
         );
       }
-      betaCloseOverlay(sheet);
+      if (result === "update") betaCloseOverlay(sheet);
     } else {
       location.reload();
     }
@@ -338,16 +354,31 @@ function escapeAttr(s) {
 }
 
 function injectBetaChrome() {
-  if (document.getElementById("betaChrome")) return;
-  const chrome = document.createElement("div");
-  chrome.id = "betaChrome";
-  chrome.innerHTML = `
-    <button type="button" id="btnFeedback" title="Send feedback">Feedback</button>
-    <button type="button" id="btnAbout" title="About">About</button>
-  `;
-  document.body.appendChild(chrome);
-  document.getElementById("btnFeedback")?.addEventListener("click", openFeedbackSheet);
-  document.getElementById("btnAbout")?.addEventListener("click", openAboutSheet);
+  let chrome = document.getElementById("betaChrome");
+  if (!chrome) {
+    chrome = document.createElement("div");
+    chrome.id = "betaChrome";
+    document.body.appendChild(chrome);
+  }
+  // Preserve Get latest if update-check already injected it
+  if (!document.getElementById("btnFeedback")) {
+    const fb = document.createElement("button");
+    fb.type = "button";
+    fb.id = "btnFeedback";
+    fb.title = "Send feedback";
+    fb.textContent = "Feedback";
+    fb.addEventListener("click", openFeedbackSheet);
+    chrome.appendChild(fb);
+  }
+  if (!document.getElementById("btnAbout")) {
+    const ab = document.createElement("button");
+    ab.type = "button";
+    ab.id = "btnAbout";
+    ab.title = "About";
+    ab.textContent = "About";
+    ab.addEventListener("click", openAboutSheet);
+    chrome.appendChild(ab);
+  }
 }
 
 function initBeta() {

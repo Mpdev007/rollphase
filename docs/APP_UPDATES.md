@@ -40,9 +40,21 @@ If you only push without bumping, phones that already cached the old page may no
 ## User experience
 
 1. Deploy finishes on Render / Pages.  
-2. Open app (or leave it open). Within ~45s (or when returning to the tab), banner appears.  
+2. Open app (or leave it open). Within ~20s (or when returning to the tab), banner appears.  
 3. Tap **Restart** → fresh assets load.  
 4. **Later** dismisses only for that `buildId`; the next ship shows the banner again.
+
+## Manual refresh (always available while developing)
+
+If auto-update doesn’t fire (cache, deploy lag, sticky tab):
+
+| Control | Where |
+|---------|--------|
+| **Get latest** | Top-right floating chrome (always) |
+| **Get latest version** | Profile → Get latest card |
+| **Get latest version** | About sheet |
+
+These **always** clear Cache Storage, unregister the service worker, and hard-reload with a cache-bust query — so you never chase a stale tab.
 
 ## Host notes
 
