@@ -2,8 +2,9 @@
 
 **Owner:** Vlad (GitHub: Mpdev007)  
 **Last consolidated:** 2026-08-04  
-**Live beta (prototype only):** https://mpdev007.github.io/rollphase-beta/  
-**This monorepo:** https://github.com/Mpdev007/rollphase  
+**This monorepo (source of truth):** https://github.com/Mpdev007/rollphase  
+**Deploy:** User hosts via **Render** (auto-update from Git on push). Always `git push` after features.  
+**Also:** https://mpdev007.github.io/rollphase-beta/ may still mirror `prototype/` for static beta.  
 
 ---
 
