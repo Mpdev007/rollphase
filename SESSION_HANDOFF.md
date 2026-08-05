@@ -79,7 +79,8 @@ rollphase/
 - Profile: sports add/remove, represent studio, my reviews, social fields  
 - Check-in → checkout → rate prompt (visit-verified) against live place ids  
 - Beta gate + feedback (mailto/localStorage; optional FormSubmit email in `beta.js`)  
-- Strategy doc: `docs/LIVE_DATA_STRATEGY.md` (ranked tools + ROI) 
+- Strategy doc: `docs/LIVE_DATA_STRATEGY.md` (ranked tools + ROI)  
+- **In-app updates:** `update-check.js` + `version.json` + `sw.js` — phones get “Update available · Restart” after each ship (`scripts/bump-version.js` / `scripts/ship.ps1`) 
 - Nix client stub + local palette extract  
 
 **Not wired:** real Supabase, real auth, real PostGIS, native apps.

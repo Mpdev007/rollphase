@@ -4,10 +4,14 @@
 
 After **every feature or meaningful fix**:
 
-1. `git add` · `git commit` · **`git push origin master`** on **https://github.com/Mpdev007/rollphase**
-2. Hosting (e.g. **Render**) auto-updates from Git — do **not** rely on Cloudflare presets or manual host steps unless asked.
-3. Also sync/push **rollphase-beta** when the live static beta must match `prototype/` (if that deploy path is still active).
-4. Never leave completed work only on the local disk.
+1. **Bump deploy version** so phones prompt “Update available”:
+   - `node scripts/bump-version.js --message "short user-facing note"`
+   - Or ship in one step: `pwsh scripts/ship.ps1 -Message "short note"`
+2. `git add` · `git commit` · **`git push origin master`** on **https://github.com/Mpdev007/rollphase**
+3. Hosting (e.g. **Render**) auto-updates from Git — do **not** rely on Cloudflare presets or manual host steps unless asked.
+4. Also sync/push **rollphase-beta** when the live static beta must match `prototype/` (if that deploy path is still active).
+5. Never leave completed work only on the local disk.
+6. See `docs/APP_UPDATES.md` — `version.json` + `sw.js` BUILD_ID must change on every ship.
 
 ## Recommendation quality (non-negotiable)
 

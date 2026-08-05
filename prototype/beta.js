@@ -269,13 +269,19 @@ function openAboutSheet() {
     <div class="feedback-panel">
       <div class="sheet-handle"></div>
       <h2>About RollPhase</h2>
-      <p class="muted small">Closed beta · early access</p>
+      <p class="muted small">Closed beta · early access${
+        window.ROLLPHASE_BUILD
+          ? ` · v${escapeAttr(window.ROLLPHASE_BUILD.version || BETA.version)}`
+          : ` · v${escapeAttr(BETA.version)}`
+      }</p>
       <div class="beta-scroll" style="max-height:50vh;margin:12px 0">
         <p><strong>RollPhase</strong> is a multi-sport training companion. Find places to train, people at your level, events worth showing up for, and gear nearby — then rate venues so the next athlete knows what to expect.</p>
         <p>Use one sport or many. Focus when you want; explore when you don’t. Your club colors and crest stay personal to you.</p>
         <p>This is a closed beta. Content and features will grow. Train smart, be respectful, and tell us what matters with <strong>Feedback</strong>.</p>
+        <p class="muted small">When a new version is published, the app will offer <strong>Update available · Restart</strong> so you don’t have to reinstall.</p>
       </div>
       <button type="button" class="btn-ghost" id="aboutClose" style="width:100%;padding:12px">Close</button>
+      <button type="button" class="btn-ghost" id="aboutCheckUpdate" style="width:100%;padding:12px;margin-top:8px">Check for update</button>
       <button type="button" class="btn-ghost" id="aboutReset" style="width:100%;padding:12px;margin-top:8px">Show welcome again</button>
     </div>
   `;
@@ -284,10 +290,33 @@ function openAboutSheet() {
     if (e.target === sheet) sheet.remove();
   });
   sheet.querySelector("#aboutClose")?.addEventListener("click", () => sheet.remove());
+  sheet.querySelector("#aboutCheckUpdate")?.addEventListener("click", async () => {
+    if (typeof UpdateCheck !== "undefined") {
+      await UpdateCheck.check();
+      // If no banner appeared, give light feedback
+      if (!document.getElementById("updateBanner")) {
+        alert(
+          window.ROLLPHASE_BUILD
+            ? `You’re on the latest build (${window.ROLLPHASE_BUILD.version}).`
+            : "You’re on the latest version."
+        );
+      }
+      sheet.remove();
+    } else {
+      location.reload();
+    }
+  });
   sheet.querySelector("#aboutReset")?.addEventListener("click", () => {
     localStorage.removeItem(BETA.storageKey);
     location.reload();
   });
+}
+
+function escapeAttr(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;");
 }
 
 function injectBetaChrome() {

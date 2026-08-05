@@ -647,6 +647,80 @@ body.beta-locked .stage {
   text-decoration: none;
   font-weight: 600;
 }
+
+/* ----- Update available banner (phone-friendly) ----- */
+#updateBanner {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10050;
+  padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+}
+#updateBanner .update-banner-inner {
+  pointer-events: auto;
+  max-width: 420px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(18, 18, 22, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+}
+#updateBanner .update-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+#updateBanner .update-banner-text strong {
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+#updateBanner .update-msg {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+#updateBanner .update-banner-actions {
+  display: flex;
+  gap: 8px;
+}
+#updateBanner .update-btn-primary,
+#updateBanner .update-btn-ghost {
+  flex: 1;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 10px;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+#updateBanner .update-btn-primary {
+  background: #fff;
+  color: #111;
+}
+#updateBanner .update-btn-ghost {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+@media (min-width: 900px) {
+  #updateBanner {
+    /* Sit above the phone frame on desktop stage */
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: min(390px, 100%);
+    bottom: 24px;
+  }
+}
 .outside-note {
   font-size: 0.72rem;
   color: var(--muted);
