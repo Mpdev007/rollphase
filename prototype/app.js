@@ -17,6 +17,18 @@ const state = {
   mode: "athlete",
   profile: safeClone(typeof PROFILE_DEFAULT !== "undefined" ? PROFILE_DEFAULT : emptyProfile()),
   _rendering: false,
+  /** Live venues from PlacesLive (OSM / Google / Geoapify) — never fake stubs */
+  live: {
+    places: [],
+    provider: null,
+    loading: false,
+    error: null,
+    lat: null,
+    lng: null,
+    accuracy: null,
+    lastSport: undefined,
+    lastFetchedAt: null,
+  },
 };
 
 function emptyProfile() {
@@ -393,6 +405,10 @@ function setSport(id) {
   applySkin(id || null);
   state.checkedInGym = null;
   safeRenderAll();
+  // Sport change → re-query live venues for that sport
+  if (typeof PlacesLive !== "undefined") {
+    loadLivePlaces({ force: true, sport: id || null });
+  }
 }
 
 function addSportToProfile(sportId, level = "—") {
@@ -469,56 +485,160 @@ function renderPartnerFilters() {
     .join("");
 }
 
+function allLivePlaces() {
+  return state.live.places || [];
+}
+
+function findGym(id) {
+  return allLivePlaces().find((x) => x.id === id) || null;
+}
+
 function gymsForSport(sport = focusId()) {
+  const list = allLivePlaces();
   if (!sport) {
-    // Explore: nearest venues across sports (dedupe by id)
-    return [...GYMS].sort((a, b) => a.mi - b.mi);
+    return [...list].sort((a, b) => a.mi - b.mi);
   }
-  return GYMS.filter((g) => g.sports.includes(sport)).sort((a, b) => a.mi - b.mi);
+  return list.filter((g) => (g.sports || []).includes(sport)).sort((a, b) => a.mi - b.mi);
+}
+
+function providerLabel(provider) {
+  if (provider === "google") return "Google Places";
+  if (provider === "geoapify") return "Geoapify";
+  if (provider === "osm") return "OpenStreetMap";
+  return "Live map";
+}
+
+/**
+ * Load real venues near the user. Fake GYMS are never used.
+ */
+async function loadLivePlaces(opts = {}) {
+  if (typeof PlacesLive === "undefined") {
+    state.live.error = "Places module missing — hard refresh.";
+    state.live.loading = false;
+    return;
+  }
+  const sport = opts.sport !== undefined ? opts.sport : focusId();
+  const force = !!opts.force;
+
+  // Skip redundant fetch if same sport + have results + not forced + < 3 min
+  const fresh =
+    state.live.lastFetchedAt &&
+    Date.now() - state.live.lastFetchedAt < 3 * 60 * 1000 &&
+    state.live.lastSport === sport &&
+    state.live.places.length &&
+    !force;
+  if (fresh) return;
+
+  state.live.loading = true;
+  state.live.error = null;
+  updateLiveStatusBar();
+  if (state.tab === "gyms") renderGyms();
+  if (state.tab === "home") renderHome();
+
+  try {
+    if (state.live.lat == null || state.live.lng == null || opts.regeo) {
+      const pos = await PlacesLive.getCurrentPosition();
+      state.live.lat = pos.lat;
+      state.live.lng = pos.lng;
+      state.live.accuracy = pos.accuracy;
+    }
+    const radiusM =
+      (typeof PlacesLive.config === "function" && PlacesLive.config().defaultRadiusM) || 10000;
+    const { provider, places } = await PlacesLive.fetchNearby({
+      lat: state.live.lat,
+      lng: state.live.lng,
+      radiusM,
+      sportId: sport || null,
+    });
+    state.live.places = places;
+    state.live.provider = provider;
+    state.live.lastSport = sport;
+    state.live.lastFetchedAt = Date.now();
+    state.live.error = null;
+  } catch (e) {
+    console.warn("loadLivePlaces", e);
+    const code = e && e.code;
+    if (code === 1) {
+      state.live.error =
+        "Location permission denied. Enable location for this site to see real gyms near you.";
+    } else if (code === 2 || code === 3) {
+      state.live.error = "Could not get GPS fix. Check location services and try again.";
+    } else {
+      state.live.error =
+        (e && e.message) || "Could not load live venues. Check network and try again.";
+    }
+  } finally {
+    state.live.loading = false;
+    updateLiveStatusBar();
+    safeRenderAll();
+  }
+}
+
+function updateLiveStatusBar() {
+  const el = $("#livePlacesStatus");
+  if (!el) return;
+  const L = state.live;
+  if (L.loading) {
+    el.innerHTML = `<span class="live-dot"></span> Finding real venues near you…`;
+    el.classList.remove("error");
+    return;
+  }
+  if (L.error) {
+    el.textContent = L.error;
+    el.classList.add("error");
+    return;
+  }
+  el.classList.remove("error");
+  if (L.places.length) {
+    const where =
+      L.lat != null
+        ? `${L.lat.toFixed(3)}, ${L.lng.toFixed(3)}`
+        : "your area";
+    el.innerHTML = `<span class="live-dot"></span> ${L.places.length} live · ${escapeHtml(
+      providerLabel(L.provider)
+    )} · ${escapeHtml(where)}`;
+  } else {
+    el.textContent = "Tap Refresh to load real venues near you.";
+  }
 }
 
 function filterGyms(list) {
   const f = state.gymFilter;
   const sport = focusId();
+  const am = (g) => g.amenities || [];
+  const tagsFor = (g) => (sport ? g.tags?.[sport] || [] : Object.values(g.tags || {}).flat());
   if (f === "all" || f === "near") {
     return f === "near" ? list.filter((g) => g.mi <= 5) : list;
   }
-  if (f === "open") return list.filter((g) => g.open);
+  if (f === "open") return list.filter((g) => g.open !== false);
   if (f === "classes") {
-    if (!sport) return list.filter((g) => Object.values(g.next || {}).some((n) => /class|clinic|WOD|pads|reformer|fundamentals/i.test(n || "")));
-    return list.filter((g) => /class|clinic|WOD|pads|reformer|fundamentals/i.test(g.next[sport] || ""));
+    // Live data rarely has class schedules — keep filter soft (phone/website presence)
+    return list.filter((g) => g.website || g.phone || Object.values(g.next || {}).some(Boolean));
   }
-  const tagHit = (re) => {
-    if (!sport) {
-      return list.filter((g) => Object.values(g.tags || {}).some((arr) => (arr || []).some((t) => re.test(t))));
-    }
-    return list.filter((g) => (g.tags[sport] || []).some((t) => re.test(t)));
-  };
+  const tagHit = (re) => list.filter((g) => tagsFor(g).some((t) => re.test(t)));
   if (f === "openmat") return tagHit(/open mat|open play/i);
   if (f === "gi") return tagHit(/gi|no-gi/i);
-
   if (f === "cage")
-    return list.filter(
-      (g) => g.amenities.includes("cage") || (g.tags[sport] || []).some((t) => /cage/i.test(t))
-    );
+    return list.filter((g) => am(g).includes("cage") || tagsFor(g).some((t) => /cage/i.test(t)));
   if (f === "spar") return tagHit(/spar/i);
-  if (f === "ring") return list.filter((g) => g.amenities.includes("ring"));
-  if (f === "bags") return list.filter((g) => g.amenities.includes("bags"));
-  if (f === "platform") return list.filter((g) => g.amenities.includes("platforms"));
-  if (f === "24h") return list.filter((g) => /24/i.test(g.hours));
-  if (f === "wod") return list.filter((g) => /WOD/i.test(g.next[sport] || ""));
-  if (f === "rig") return list.filter((g) => g.amenities.includes("rig"));
+  if (f === "ring") return list.filter((g) => am(g).includes("ring"));
+  if (f === "bags") return list.filter((g) => am(g).includes("bags"));
+  if (f === "platform") return list.filter((g) => am(g).includes("platforms"));
+  if (f === "24h") return list.filter((g) => /24/i.test(g.hours || ""));
+  if (f === "wod") return list.filter((g) => /WOD/i.test((g.next && g.next[sport]) || ""));
+  if (f === "rig") return list.filter((g) => am(g).includes("rig"));
   if (f === "pads") return tagHit(/pad/i);
   if (f === "fightteam") return tagHit(/fight team/i);
-  if (f === "sled") return list.filter((g) => g.amenities.includes("sled") || g.amenities.includes("stations"));
+  if (f === "sled")
+    return list.filter((g) => am(g).includes("sled") || am(g).includes("stations"));
   if (f === "indoor")
     return list.filter(
-      (g) => g.amenities.includes("indoor") || (g.tags[sport] || []).some((t) => /indoor/i.test(t))
+      (g) => am(g).includes("indoor") || tagsFor(g).some((t) => /indoor/i.test(t))
     );
   if (f === "tournament") return tagHit(/tournament|hosts events|ladder/i);
   if (f === "reformer")
     return list.filter(
-      (g) => g.amenities.includes("reformer") || (g.tags[sport] || []).some((t) => /reformer/i.test(t))
+      (g) => am(g).includes("reformer") || tagsFor(g).some((t) => /reformer/i.test(t))
     );
   return list;
 }
@@ -556,11 +676,12 @@ function socialForSport() {
 /* ---------- Cards ---------- */
 function gymCardHTML(g, sport) {
   const focus = sport || focusId();
-  const primarySport = focus && g.sports.includes(focus) ? focus : g.sports[0];
-  const tags = (g.tags[primarySport] || []).slice(0, 3);
-  const next = g.next[primarySport] || "";
-  const here = (g.here[primarySport] || []).length;
-  const sportLabels = g.sports
+  const sports = g.sports || [];
+  const primarySport = focus && sports.includes(focus) ? focus : sports[0];
+  const tags = ((g.tags && g.tags[primarySport]) || []).slice(0, 3);
+  const next = (g.next && g.next[primarySport]) || "";
+  const here = ((g.here && g.here[primarySport]) || []).length;
+  const sportLabels = sports
     .slice(0, 3)
     .map((id) => sportMeta(id)?.short || id)
     .join(" · ");
@@ -570,20 +691,30 @@ function gymCardHTML(g, sport) {
       : null;
   const ratingHtml = agg
     ? `<div class="rating-pill"><span class="stars">${ReviewSystem.starsHtml(agg.overall)}</span> ${agg.overall} · ${agg.count}</div>`
-    : "";
+    : g.googleRating
+      ? `<div class="rating-pill"><span class="stars">★</span> ${g.googleRating}${g.googleRatingCount ? ` · ${g.googleRatingCount}` : ""}</div>`
+      : "";
+  const metaBits = [];
+  if (next) metaBits.push(next);
+  else if (g.hours) metaBits.push(g.hours);
+  else if (g.address) metaBits.push(g.address);
+  if (g.phone) metaBits.push(g.phone);
   return `
-    <article class="card" data-gym="${g.id}">
+    <article class="card" data-gym="${escapeHtml(g.id)}">
       <div class="card-top">
         <div>
           <div class="card-title">${escapeHtml(g.name)}</div>
-          <div class="card-meta">${next ? escapeHtml(next) : escapeHtml(g.hours)}</div>
+          <div class="card-meta">${metaBits.length ? escapeHtml(metaBits.join(" · ")) : "Live venue"}</div>
           ${ratingHtml}
         </div>
-        <div class="dist">${g.mi} mi</div>
+        <div class="dist">${g.mi != null ? g.mi + " mi" : "—"}</div>
       </div>
       <div class="card-tags">
-        ${g.open ? '<span class="tag-pill open">Open now</span>' : '<span class="tag-pill">Closed</span>'}
-        ${!focus ? `<span class="tag-pill accent">${escapeHtml(sportLabels)}</span>` : ""}
+        ${g.live ? '<span class="tag-pill live">Live</span>' : ""}
+        ${g.open ? '<span class="tag-pill open">Open</span>' : ""}
+        ${g.phone ? '<span class="tag-pill">Phone</span>' : ""}
+        ${g.website ? '<span class="tag-pill">Website</span>' : ""}
+        ${!focus && sportLabels ? `<span class="tag-pill accent">${escapeHtml(sportLabels)}</span>` : ""}
         ${tags.map((t) => `<span class="tag-pill accent">${escapeHtml(t)}</span>`).join("")}
         ${here ? `<span class="tag-pill live">${here} here</span>` : ""}
         ${(agg?.topTags || []).slice(0, 2).map((t) => `<span class="tag-pill">${escapeHtml(t)}</span>`).join("")}
@@ -730,9 +861,21 @@ function renderHome() {
   const homeGyms = $("#homeGyms");
   if (homeGyms) {
     const gMod = homeGyms.closest(".module");
-    if (!gyms.length) gMod?.classList.add("collapsed");
-    else {
-      gMod?.classList.remove("collapsed");
+    gMod?.classList.remove("collapsed");
+    if (state.live.loading && !gyms.length) {
+      homeGyms.innerHTML = empty("Finding real venues…", "Allow location when prompted.");
+    } else if (!gyms.length) {
+      homeGyms.innerHTML =
+        empty(
+          "No live venues yet",
+          state.live.error || "Tap refresh on Venues to load map data near you."
+        ) +
+        `<button type="button" class="btn-ghost" id="homeLoadPlaces" style="width:100%;margin-top:8px;padding:12px">Load places near me</button>`;
+      $("#homeLoadPlaces")?.addEventListener("click", () => {
+        switchTab("gyms");
+        loadLivePlaces({ force: true, regeo: true });
+      });
+    } else {
       homeGyms.innerHTML = gyms.map((g) => gymCardHTML(g, sport)).join("");
     }
   }
@@ -784,7 +927,7 @@ function renderCheckinBar() {
   if (!bar) return;
   const s = sportMeta(focusId());
   if (state.checkedInGym) {
-    const g = GYMS.find((x) => x.id === state.checkedInGym);
+    const g = findGym(state.checkedInGym);
     bar.classList.add("live");
     bar.innerHTML = `
       <div>
@@ -822,31 +965,105 @@ function renderCheckinBar() {
 }
 
 function renderGyms() {
+  updateLiveStatusBar();
   let list = filterGyms(gymsForSport());
   const listEl = $("#gymList");
   const mapEl = $("#gymMap");
   if (!listEl || !mapEl) return;
+
+  if (state.live.loading && !list.length) {
+    mapEl.classList.add("hidden");
+    listEl.classList.remove("hidden");
+    listEl.innerHTML = empty(
+      "Loading live venues…",
+      "Using your location and open map data (or Google Places if configured)."
+    );
+    return;
+  }
+
+  if (state.live.error && !list.length) {
+    mapEl.classList.add("hidden");
+    listEl.classList.remove("hidden");
+    listEl.innerHTML =
+      empty("Couldn’t load places", state.live.error) +
+      `<button type="button" class="btn-primary" id="retryLivePlaces" style="margin-top:12px">Enable location &amp; retry</button>`;
+    $("#retryLivePlaces")?.addEventListener("click", () => loadLivePlaces({ force: true, regeo: true }));
+    return;
+  }
+
   if (state.gymView === "map") {
     listEl.classList.add("hidden");
     mapEl.classList.remove("hidden");
-    $("#mapPins").innerHTML = list
-      .map((g, i) => {
-        const left = 18 + ((i * 37) % 70);
-        const top = 20 + ((i * 53) % 60);
-        return `<div class="map-pin" style="left:${left}%;top:${top}%" data-gym="${g.id}" title="${escapeHtml(g.name)}"></div>`;
-      })
-      .join("");
+    const pins = $("#mapPins");
+    if (!list.length) {
+      if (pins) pins.innerHTML = "";
+      return;
+    }
+    // Project real lat/lng into a simple local map relative to user
+    const lats = list.map((g) => g.lat).filter((n) => n != null);
+    const lngs = list.map((g) => g.lng).filter((n) => n != null);
+    const minLat = Math.min(...lats, state.live.lat ?? lats[0]);
+    const maxLat = Math.max(...lats, state.live.lat ?? lats[0]);
+    const minLng = Math.min(...lngs, state.live.lng ?? lngs[0]);
+    const maxLng = Math.max(...lngs, state.live.lng ?? lngs[0]);
+    const pad = 0.0001;
+    const dLat = Math.max(maxLat - minLat, pad);
+    const dLng = Math.max(maxLng - minLng, pad);
+    if (pins) {
+      pins.innerHTML = list
+        .map((g) => {
+          const left = 8 + ((g.lng - minLng) / dLng) * 84;
+          const top = 8 + (1 - (g.lat - minLat) / dLat) * 72;
+          return `<div class="map-pin" style="left:${left}%;top:${top}%" data-gym="${escapeHtml(
+            g.id
+          )}" title="${escapeHtml(g.name)}"></div>`;
+        })
+        .join("");
+    }
   } else {
     mapEl.classList.add("hidden");
     listEl.classList.remove("hidden");
     listEl.innerHTML = list.length
       ? list.map((g) => gymCardHTML(g, focusId())).join("")
-      : empty("No venues match", "Clear filters or explore all sports.");
+      : empty(
+          "No venues in this radius",
+          "Clear filters, widen sport focus, or refresh. Results are live map data only — no fake listings."
+        );
   }
 }
 
-function mapsSearchUrl(gymName) {
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(gymName)}`;
+function mapsSearchUrl(gymName, address) {
+  if (typeof PlacesLive !== "undefined" && PlacesLive.mapsSearchUrl) {
+    return PlacesLive.mapsSearchUrl(gymName, address);
+  }
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+    [gymName, address].filter(Boolean).join(" ")
+  )}`;
+}
+
+function contactLinksHTML(g) {
+  const links = [];
+  if (g.phone) {
+    const tel = g.phone.replace(/[^\d+]/g, "");
+    links.push(
+      `<a class="btn-ghost contact-link" href="tel:${escapeHtml(tel)}">Call ${escapeHtml(g.phone)}</a>`
+    );
+  }
+  if (g.website) {
+    links.push(
+      `<a class="btn-ghost contact-link" href="${escapeHtml(g.website)}" target="_blank" rel="noopener">Website</a>`
+    );
+  }
+  const maps = g.mapsUrl || mapsSearchUrl(g.name, g.address);
+  links.push(
+    `<a class="btn-ghost contact-link" href="${escapeHtml(maps)}" target="_blank" rel="noopener">Open in Google Maps</a>`
+  );
+  if (g.osmUrl) {
+    links.push(
+      `<a class="btn-ghost contact-link" href="${escapeHtml(g.osmUrl)}" target="_blank" rel="noopener">OpenStreetMap</a>`
+    );
+  }
+  return `<div class="contact-links">${links.join("")}</div>`;
 }
 
 function renderReviewsPanel(gymId, sport) {
@@ -909,7 +1126,8 @@ function renderReviewsPanel(gymId, sport) {
     <h4 class="rep-section-title">Outside the app</h4>
     <p class="outside-note">We keep Google/Yelp noise out of the main score. Use Maps for directions &amp; public hours — use RollPhase for sport-specific athlete signal.</p>
     <div class="ext-links">
-      <a href="${mapsSearchUrl(GYMS.find((x) => x.id === gymId)?.name || "")}" target="_blank" rel="noopener">Open in Google Maps</a>
+      <a href="${escapeHtml((findGym(gymId)?.mapsUrl) || mapsSearchUrl(findGym(gymId)?.name || ""))}" target="_blank" rel="noopener">Open in Google Maps</a>
+      ${findGym(gymId)?.website ? `<a href="${escapeHtml(findGym(gymId).website)}" target="_blank" rel="noopener">Venue website</a>` : ""}
       <button type="button" class="linkish" id="copyVenueShare">Copy share link for non-app friends</button>
     </div>
   `;
@@ -995,9 +1213,9 @@ function bindRateForm(gymId, sport) {
   });
 
   $("#copyVenueShare")?.addEventListener("click", () => {
-    const g = GYMS.find((x) => x.id === gymId);
+    const g = findGym(gymId);
     const agg = RS.aggregateRating(gymId, sport);
-    const line = `${g?.name} on RollPhase${agg ? ` · ${agg.overall}★ (${agg.count} athlete reviews)` : ""} — ${location.origin}${location.pathname}#gym=${gymId}`;
+    const line = `${g?.name || "Venue"} on RollPhase${agg ? ` · ${agg.overall}★ (${agg.count} athlete reviews)` : ""}${g?.website ? ` · ${g.website}` : ""} — ${location.origin}${location.pathname}#gym=${gymId}`;
     try {
       navigator.clipboard?.writeText(line);
       alert("Copied share blurb for friends (app or not).");
@@ -1008,47 +1226,80 @@ function bindRateForm(gymId, sport) {
 }
 
 function openGymDetail(id) {
-  const g = GYMS.find((x) => x.id === id);
+  const g = findGym(id);
   if (!g) return;
-  const sport = focusId() && g.sports.includes(focusId()) ? focusId() : g.sports[0];
+  const sports = g.sports || [];
+  const sport = focusId() && sports.includes(focusId()) ? focusId() : sports[0];
   const s = sportMeta(sport);
-  const tags = g.tags[sport] || [];
-  const here = g.here[sport] || [];
+  const tags = (g.tags && g.tags[sport]) || [];
+  const here = (g.here && g.here[sport]) || [];
   const promo = g.promo?.[sport];
   const social = g.social || {};
   const agg =
     typeof ReviewSystem !== "undefined" ? ReviewSystem.aggregateRating(g.id, sport) : null;
+  const hoursDisplay =
+    g.hours ||
+    (g.live
+      ? "Hours not listed in map data — check website or Google Maps"
+      : "—");
+  const sourceNote = g.source
+    ? `Live data · ${providerLabel(g.source)}`
+    : "Live data";
 
   $("#gymDetailBody").innerHTML = `
     <div class="detail-hero">
       <h2>${escapeHtml(g.name)}</h2>
-      <div class="card-meta">${g.mi} mi · ${g.open ? "Open now" : "Closed"} · ${escapeHtml(g.hours)}</div>
+      <div class="card-meta">${g.mi != null ? g.mi + " mi" : "—"} · ${
+        g.open !== false ? "Listed open / unknown" : "May be closed"
+      } · ${escapeHtml(sourceNote)}</div>
+      ${
+        g.address
+          ? `<div class="card-meta" style="margin-top:4px">${escapeHtml(g.address)}</div>`
+          : ""
+      }
       ${
         agg
           ? `<div class="rating-pill" style="margin-top:6px"><span class="stars">${ReviewSystem.starsHtml(agg.overall)}</span> ${agg.overall} · ${agg.count} RollPhase reviews</div>`
-          : ""
+          : g.googleRating
+            ? `<div class="rating-pill" style="margin-top:6px">★ ${g.googleRating}${g.googleRatingCount ? ` · ${g.googleRatingCount} Google ratings` : ""}</div>`
+            : ""
       }
       <div class="card-tags" style="margin-top:10px">
-        ${g.sports.map((sid) => `<span class="tag-pill accent">${escapeHtml(sportMeta(sid)?.short || sid)}</span>`).join("")}
+        ${sports.map((sid) => `<span class="tag-pill accent">${escapeHtml(sportMeta(sid)?.short || sid)}</span>`).join("")}
         ${tags.map((t) => `<span class="tag-pill">${escapeHtml(t)}</span>`).join("")}
+        ${g.phone ? '<span class="tag-pill">Phone</span>' : ""}
+        ${g.website ? '<span class="tag-pill">Website</span>' : ""}
       </div>
     </div>
     <div class="detail-tabs">
       <button type="button" class="detail-tab active" data-panel="overview">Overview</button>
       <button type="button" class="detail-tab" data-panel="reviews">Reviews</button>
-      <button type="button" class="detail-tab" data-panel="schedule">Schedule</button>
+      <button type="button" class="detail-tab" data-panel="schedule">Hours</button>
       <button type="button" class="detail-tab" data-panel="here">Here now</button>
-      <button type="button" class="detail-tab" data-panel="social">Social</button>
+      <button type="button" class="detail-tab" data-panel="social">Links</button>
     </div>
     <div class="detail-panel active" data-panel="overview">
-      <div class="row-line"><span>Next</span><span>${escapeHtml(g.next[sport] || "—")}</span></div>
-      <div class="row-line"><span>Sports</span><span>${g.sports.map((x) => sportMeta(x)?.short || x).join(", ")}</span></div>
+      <div class="row-line"><span>Phone</span><span>${
+        g.phone
+          ? `<a href="tel:${escapeHtml(g.phone.replace(/[^\d+]/g, ""))}">${escapeHtml(g.phone)}</a>`
+          : "Not listed — open Maps"
+      }</span></div>
+      <div class="row-line"><span>Website</span><span>${
+        g.website
+          ? `<a href="${escapeHtml(g.website)}" target="_blank" rel="noopener">Visit site</a>`
+          : "Not listed — open Maps"
+      }</span></div>
+      <div class="row-line"><span>Hours</span><span>${escapeHtml(hoursDisplay)}</span></div>
+      <div class="row-line"><span>Sports</span><span>${
+        sports.map((x) => sportMeta(x)?.short || x).join(", ") || "—"
+      }</span></div>
       ${
         agg
           ? `<div class="row-line"><span>Athletes say</span><span>${escapeHtml((agg.topTags || []).slice(0, 2).join(" · ") || "—")}</span></div>`
           : ""
       }
-      <button type="button" class="btn-primary" id="checkInHere">Check in${s ? ` · ${escapeHtml(s.short)}` : ""}</button>
+      ${contactLinksHTML(g)}
+      <button type="button" class="btn-primary" id="checkInHere" style="margin-top:12px">Check in${s ? ` · ${escapeHtml(s.short)}` : ""}</button>
       <button type="button" class="btn-ghost" id="savePlace" style="width:100%;margin-top:8px;padding:12px">${isFavorite(g.id) ? "✓ Saved place" : "Save place · stay in the loop"}</button>
       <button type="button" class="btn-ghost" id="followGym" style="width:100%;margin-top:8px;padding:12px">Follow for updates</button>
       <button type="button" class="btn-ghost" id="jumpReviews" style="width:100%;margin-top:8px;padding:12px">See athlete reviews</button>
@@ -1062,9 +1313,10 @@ function openGymDetail(id) {
       ${renderReviewsPanel(g.id, sport)}
     </div>
     <div class="detail-panel" data-panel="schedule">
-      <div class="row-line"><span>Today</span><span>${escapeHtml(g.next[sport] || "Nothing listed")}</span></div>
-      <div class="row-line"><span>Hours</span><span>${escapeHtml(g.hours)}</span></div>
+      <div class="row-line"><span>Hours</span><span>${escapeHtml(hoursDisplay)}</span></div>
+      <p class="muted small" style="margin-top:10px">Class schedules come from the gym (website, Maps, or when they connect RollPhase) — we don’t invent times.</p>
       ${promo ? `<div class="event-card" style="margin-top:12px"><div class="card-title">${escapeHtml(promo)}</div></div>` : ""}
+      ${contactLinksHTML(g)}
     </div>
     <div class="detail-panel" data-panel="here">
       ${
@@ -1078,7 +1330,10 @@ function openGymDetail(id) {
         </div>`
               )
               .join("")
-          : empty("Nobody checked in", "Be first when you arrive.")
+          : empty(
+              "Nobody checked in on RollPhase",
+              "Real athletes only — be first when you arrive."
+            )
       }
     </div>
     <div class="detail-panel" data-panel="social">
@@ -1088,11 +1343,12 @@ function openGymDetail(id) {
               .map(([k, v]) => `<div class="row-line"><span>${escapeHtml(k)}</span><span>${escapeHtml(v)}</span></div>`)
               .join("") +
             `<p class="muted small" style="margin-top:12px">Following brings their updates into your Feed.</p>`
-          : empty("No linked socials", "Gym can connect IG / FB later.")
+          : empty(
+              "No social linked yet",
+              "Use website or Maps until this gym connects profiles."
+            )
       }
-      <div class="ext-links">
-        <a href="${mapsSearchUrl(g.name)}" target="_blank" rel="noopener">Directions · Google Maps</a>
-      </div>
+      ${contactLinksHTML(g)}
     </div>
   `;
 
@@ -1169,7 +1425,10 @@ function renderPartners() {
     </article>`
         )
         .join("")
-    : empty("No partners in this pool", "Expand radius or clear sport focus.");
+    : empty(
+        "No partners nearby yet",
+        "Partner matching is real athletes only — not fake profiles. Join the beta network once accounts are live, or check back as people open to train near you."
+      );
 
   $$("[data-match]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1315,23 +1574,32 @@ function renderFeed() {
       ? list.join("")
       : empty(
           "Your loop is quiet",
-          "Set a first-choice sport and save a few gyms — specials and events land here."
+          "Save real venues near you and set a first-choice sport. Events and gym posts appear when they’re real — not invented."
         );
   } else if (state.feedMode === "events") {
     const list = eventsForSport({ upcomingOnly: true });
     body.innerHTML = list.length
       ? list.map(eventCardHTML).join("")
-      : empty("No upcoming events", "Try another sport or open For you.");
+      : empty(
+          "No events yet",
+          "Tournament and open-mat cards will come from gym feeds and federations — we don’t invent local events."
+        );
   } else if (state.feedMode === "live") {
     const list = eventsForSport({ liveOnly: true });
     body.innerHTML = list.length
       ? list.map(eventCardHTML).join("")
-      : empty("Nothing live right now", "Live sessions show up here.");
+      : empty(
+          "Nothing live on RollPhase",
+          "Live means real check-ins and sessions from athletes — not fake “busy now” counters."
+        );
   } else {
     const list = socialForSport();
     body.innerHTML = list.length
       ? list.map(socialCardHTML).join("")
-      : empty("No updates yet", "Save or follow places you train.");
+      : empty(
+          "No updates yet",
+          "Follow real venues after you open them. Social posts need live gym connections."
+        );
   }
 
   $$("[data-notify]").forEach((btn) => {
@@ -1370,7 +1638,10 @@ function renderGear() {
       </article>`
           )
           .join("")
-      : empty("No shops", "Gear stays sport-scoped.");
+      : empty(
+          "No gear shops listed yet",
+          "Coming from live map data (sporting goods / bike shops) — not fake storefronts."
+        );
   } else {
     needsEl?.classList.remove("hidden");
     shopsEl.classList.add("hidden");
@@ -1779,23 +2050,29 @@ function renderProfile() {
     placesHost.innerHTML = favs.length
       ? favs
           .map((f) => {
-            const g = GYMS.find((x) => x.id === f.gymId);
+            const g = findGym(f.gymId);
             const sm = sportMeta(f.sport);
             return `
           <div class="profile-sport-row">
             <div class="meta" style="margin-left:0">
               <strong>${escapeHtml(f.name)}</strong>
-              <span>${escapeHtml(sm?.short || "")} · saved${g?.open ? " · often open" : ""}</span>
+              <span>${escapeHtml(sm?.short || "")} · saved${g?.phone ? " · phone" : ""}${g?.website ? " · site" : ""}</span>
             </div>
-            <button type="button" data-open-place="${f.gymId}">Open</button>
-            <button type="button" data-unsave-place="${f.gymId}">Unsave</button>
+            <button type="button" data-open-place="${escapeHtml(f.gymId)}">Open</button>
+            <button type="button" data-unsave-place="${escapeHtml(f.gymId)}">Unsave</button>
           </div>`;
           })
           .join("") +
-        `<p class="muted small" style="margin-top:8px">Open a gym → Save place. Specials from these land in <strong>Feed → For you</strong>.</p>`
-      : `<p class="muted small">No saved places yet. When you find a gym you like, tap <strong>Save place</strong> so you never miss their specials.</p>`;
+        `<p class="muted small" style="margin-top:8px">Open a live venue → Save place. Specials land in <strong>Feed → For you</strong> once gyms connect.</p>`
+      : `<p class="muted small">No saved places yet. Load venues near you, open one you like, tap <strong>Save place</strong>.</p>`;
     placesHost.querySelectorAll("[data-open-place]").forEach((b) => {
-      b.addEventListener("click", () => openGymDetail(b.dataset.openPlace));
+      b.addEventListener("click", () => {
+        if (findGym(b.dataset.openPlace)) openGymDetail(b.dataset.openPlace);
+        else {
+          switchTab("gyms");
+          loadLivePlaces({ force: true });
+        }
+      });
     });
     placesHost.querySelectorAll("[data-unsave-place]").forEach((b) => {
       b.addEventListener("click", () => {
@@ -1821,8 +2098,8 @@ function renderProfile() {
     myRev.innerHTML = rows.length
       ? rows
           .map((r) => {
-            const g = GYMS.find((x) => x.id === r.gymId);
-            return `<div class="review-card" style="cursor:pointer" data-gym="${r.gymId}">
+            const g = findGym(r.gymId);
+            return `<div class="review-card" style="cursor:pointer" data-gym="${escapeHtml(r.gymId)}">
               <div class="who">${escapeHtml(g?.name || r.gymId)}${r.verifiedVisit ? '<span class="verified-badge">Visit verified</span>' : ""}</div>
               <div class="when">${escapeHtml(sportMeta(r.sport)?.short || "")} · ${ReviewSystem.starsHtml(r.scores?.overall)}</div>
               ${r.text ? `<div class="body">${escapeHtml(r.text)}</div>` : ""}
@@ -1956,8 +2233,14 @@ function switchTab(tab) {
   state.tab = tab;
   $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === tab));
   showScreen(tab);
-  if (tab === "home") renderHome();
-  if (tab === "gyms") renderGyms();
+  if (tab === "home") {
+    renderHome();
+    if (!state.live.places.length && !state.live.loading) loadLivePlaces();
+  }
+  if (tab === "gyms") {
+    renderGyms();
+    if (!state.live.places.length && !state.live.loading) loadLivePlaces({ force: true });
+  }
   if (tab === "partners") renderPartners();
   if (tab === "feed") renderFeed();
   if (tab === "profile") {
@@ -2065,6 +2348,10 @@ function bind() {
 
   $("#gymBack")?.addEventListener("click", () => switchTab("gyms"));
 
+  $("#refreshLivePlaces")?.addEventListener("click", () => {
+    loadLivePlaces({ force: true, regeo: true });
+  });
+
   $("#gymViewSeg")?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-view]");
     if (!btn) return;
@@ -2144,6 +2431,8 @@ function bind() {
     applySkin(state.sport, { flash: false });
     bind();
     safeRenderAll();
+    // Live places immediately — real data, not stubs
+    loadLivePlaces({ force: true });
   } catch (e) {
     console.error("boot failed", e);
     document.body.insertAdjacentHTML(

@@ -22,3 +22,7 @@ build/
 
 # Local only
 prototype/assets/team/
+
+# Local API keys — copy from config.example.js
+prototype/config.js
+

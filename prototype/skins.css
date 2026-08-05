@@ -610,6 +610,43 @@ body.beta-locked .stage {
   font-family: inherit;
   cursor: pointer;
 }
+.live-status-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+.live-status-row .hint {
+  margin: 0;
+  flex: 1;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+.live-status-row .hint.error {
+  color: #f0a0a0;
+}
+.contact-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.contact-links .contact-link {
+  display: block;
+  text-align: center;
+  padding: 12px;
+  border-radius: 12px;
+  text-decoration: none;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.detail-panel .row-line a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
 .outside-note {
   font-size: 0.72rem;
   color: var(--muted);

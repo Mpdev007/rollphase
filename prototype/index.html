@@ -32,7 +32,7 @@
       <h1>RollPhase</h1>
       <p class="tag">Every sport · near you · your people</p>
       <ul>
-        <li><strong>Find gyms</strong> — hours, specialties, who’s training now.</li>
+        <li><strong>Find gyms</strong> — live places near you, phone, website, Maps.</li>
         <li><strong>Match partners</strong> at your level for the sport you care about.</li>
         <li><strong>Events &amp; rates</strong> — know where to go and what’s worth it.</li>
         <li><strong>Multi-sport</strong> — focus today or explore freely.</li>
@@ -133,7 +133,7 @@
               </div>
             </section>
 
-            <!-- GYMS -->
+            <!-- GYMS — live map data only -->
             <section class="screen" data-screen="gyms" id="screen-gyms">
               <div class="section-head">
                 <h2 id="gymsTitle">Gyms</h2>
@@ -142,12 +142,16 @@
                   <button type="button" class="seg-btn" data-view="map">Map</button>
                 </div>
               </div>
+              <div class="live-status-row">
+                <p class="hint" id="livePlacesStatus">Live venues near you</p>
+                <button type="button" class="text-btn" id="refreshLivePlaces">Refresh</button>
+              </div>
               <div class="filter-row" id="gymFilters"></div>
               <div id="gymList" class="list"></div>
               <div id="gymMap" class="map-mock hidden">
                 <div class="map-grid"></div>
                 <div class="map-pins" id="mapPins"></div>
-                <p class="map-caption">Map view · list is the same results</p>
+                <p class="map-caption">Pins from live coordinates · same results as list</p>
               </div>
             </section>
 
@@ -316,9 +320,12 @@
     </div>
   </div>
 
+  <!-- Optional: copy config.example.js → config.js with Google Places / Geoapify keys -->
+  <script src="config.js" onerror="/* optional */"></script>
   <script src="beta.js"></script>
   <script src="data.js"></script>
   <script src="reviews.js"></script>
+  <script src="places-live.js"></script>
   <script src="nix-client.js"></script>
   <script src="app.js"></script>
 </body>

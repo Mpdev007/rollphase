@@ -73,11 +73,13 @@ rollphase/
 
 - Multi-sport home rail, optional focus, guest vs athlete demo  
 - Sport skins (21 sports), searchable picker  
-- Gyms list/map mock, detail tabs (overview, **reviews**, schedule, here, social)  
-- Partners, Feed (events/live/social mocks)  
+- **Live venues** (not stubs): geolocation + OpenStreetMap Overpass; optional Google Places / Geoapify via `config.js`  
+- Gym detail: **phone, website, hours, Open in Maps** from live data when available  
+- Fake GYMS / PARTNERS / EVENTS / seed reviews **removed** — empty honest states  
 - Profile: sports add/remove, represent studio, my reviews, social fields  
-- Check-in → checkout → rate prompt (visit-verified)  
+- Check-in → checkout → rate prompt (visit-verified) against live place ids  
 - Beta gate + feedback (mailto/localStorage; optional FormSubmit email in `beta.js`)  
+- Strategy doc: `docs/LIVE_DATA_STRATEGY.md` (ranked tools + ROI) 
 - Nix client stub + local palette extract  
 
 **Not wired:** real Supabase, real auth, real PostGIS, native apps.
