@@ -650,6 +650,10 @@ body.beta-locked .stage {
 .live-status-row .hint.error {
   color: #f0a0a0;
 }
+.live-status-row .hint .err-soft {
+  color: #e0b070;
+  font-size: 0.68rem;
+}
 .location-bar {
   display: flex;
   flex-direction: column;

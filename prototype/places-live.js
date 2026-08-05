@@ -696,10 +696,49 @@ out center tags 40;`;
     };
   }
 
-  function getCurrentPosition(options = {}) {
+  const LOC_KEY = "rollphase.lastLocation.v1";
+
+  function saveLastLocation(pos) {
+    try {
+      localStorage.setItem(
+        LOC_KEY,
+        JSON.stringify({
+          lat: pos.lat,
+          lng: pos.lng,
+          accuracy: pos.accuracy,
+          label: pos.label || null,
+          at: Date.now(),
+        })
+      );
+    } catch {
+      /* private mode */
+    }
+  }
+
+  function loadLastLocation(maxAgeMs = 7 * 24 * 60 * 60 * 1000) {
+    try {
+      const raw = localStorage.getItem(LOC_KEY);
+      if (!raw) return null;
+      const d = JSON.parse(raw);
+      if (d?.lat == null || d?.lng == null) return null;
+      if (maxAgeMs && d.at && Date.now() - d.at > maxAgeMs) return null;
+      return {
+        lat: +d.lat,
+        lng: +d.lng,
+        accuracy: d.accuracy,
+        label: d.label || null,
+        fromCache: true,
+        at: d.at,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function geoOnce(opts) {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
-        reject(Object.assign(new Error("Location not available"), { code: 0 }));
+        reject(Object.assign(new Error("Geolocation API missing"), { code: 0 }));
         return;
       }
       navigator.geolocation.getCurrentPosition(
@@ -708,11 +747,86 @@ out center tags 40;`;
             lat: pos.coords.latitude,
             lng: pos.coords.longitude,
             accuracy: pos.coords.accuracy,
+            fromCache: false,
           }),
         (err) => reject(err),
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000, ...options }
+        opts
       );
     });
+  }
+
+  /**
+   * Phone-native location:
+   * 1) optional Permissions API
+   * 2) fast low-accuracy fix (works better on cellular)
+   * 3) high-accuracy retry
+   * 4) recent last-known localStorage fallback
+   * Requires HTTPS (secure context) on real phones.
+   */
+  async function getCurrentPosition(options = {}) {
+    const allowCache = options.allowCache !== false;
+
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+      const cached = allowCache ? loadLastLocation() : null;
+      if (cached) return cached;
+      const err = new Error(
+        "Location needs a secure site (HTTPS). Use city search, or open the deployed HTTPS app."
+      );
+      err.code = 0;
+      err.secure = false;
+      throw err;
+    }
+
+    if (!navigator.geolocation) {
+      const cached = allowCache ? loadLastLocation() : null;
+      if (cached) return cached;
+      throw Object.assign(new Error("Location not available on this device"), { code: 0 });
+    }
+
+    // Permissions API — surface denied early with clearer UX
+    try {
+      if (navigator.permissions?.query) {
+        const st = await navigator.permissions.query({ name: "geolocation" });
+        if (st.state === "denied") {
+          const cached = allowCache ? loadLastLocation() : null;
+          if (cached) return { ...cached, permissionDenied: true };
+          const err = new Error(
+            "Location permission is blocked. Enable it in the browser site settings, or type a city."
+          );
+          err.code = 1;
+          throw err;
+        }
+      }
+    } catch (e) {
+      if (e && e.code === 1) throw e;
+      /* Safari may throw on permissions.query — ignore */
+    }
+
+    // Pass 1: network/wifi-ish, faster
+    try {
+      const pos = await geoOnce({
+        enableHighAccuracy: false,
+        timeout: options.timeout || 12000,
+        maximumAge: options.maximumAge ?? 120000,
+      });
+      saveLastLocation(pos);
+      return pos;
+    } catch (e1) {
+      // Pass 2: GPS high accuracy
+      try {
+        const pos = await geoOnce({
+          enableHighAccuracy: true,
+          timeout: options.timeout || 18000,
+          maximumAge: 0,
+        });
+        saveLastLocation(pos);
+        return pos;
+      } catch (e2) {
+        const cached = allowCache ? loadLastLocation() : null;
+        if (cached) return cached;
+        throw e2 || e1;
+      }
+    }
   }
 
   return {
@@ -722,6 +836,8 @@ out center tags 40;`;
     fetchOsmNearby,
     fetchGoogleNearby,
     getCurrentPosition,
+    saveLastLocation,
+    loadLastLocation,
     geocodePlace,
     reverseGeocode,
     haversineMi,

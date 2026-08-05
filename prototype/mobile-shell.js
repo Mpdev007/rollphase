@@ -72,20 +72,20 @@
     window.visualViewport.addEventListener("scroll", setAppHeight, { passive: true });
   }
 
-  // Prevent pull-to-refresh / body rubber-band dragging the chrome
+  // Prevent body rubber-band on chrome; never block map / sheet / screen scroll
   document.addEventListener(
     "touchmove",
     (e) => {
       if (!isPhoneShell()) return;
-      // Allow scroll only inside designated scroll regions
-      const scrollable = e.target.closest(
-        ".screen, .beta-scroll, .feedback-panel, .overlay .sheet, .sport-grid, #betaGate"
-      );
-      if (!scrollable) {
-        // Don't block if we're not at body level issues
-        if (e.target.closest(".tab-bar, .app-header, .status-bar")) {
-          e.preventDefault();
-        }
+      if (
+        e.target.closest(
+          ".screen, .live-map, .leaflet-container, .leaflet-pane, .beta-scroll, .feedback-panel, .overlay .sheet, .sport-grid, #betaGate, #profileSettings, .profile-settings"
+        )
+      ) {
+        return;
+      }
+      if (e.target.closest(".tab-bar, .app-header, .status-bar, .location-bar")) {
+        e.preventDefault();
       }
     },
     { passive: false }

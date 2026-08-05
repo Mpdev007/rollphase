@@ -1,6 +1,6 @@
 {
   "version": "0.5.0",
-  "buildId": "20260805-1449-affa237",
-  "builtAt": "2026-08-05T14:49:25.150Z",
-  "message": "Profile cleaned: colors under Settings"
+  "buildId": "20260805-1654-dffc858",
+  "builtAt": "2026-08-05T16:54:06.748Z",
+  "message": "Phone location harden + native back stack + QA smoke"
 }

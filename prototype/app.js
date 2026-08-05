@@ -545,12 +545,13 @@ function ensureLiveMap() {
     setTimeout(() => liveMap.invalidateSize(), 80);
     return liveMap;
   }
-  const lat = state.live.lat ?? 30.2672;
-  const lng = state.live.lng ?? -97.7431;
+  // Never invent a city — only center when we have real coords
+  const lat = state.live.lat;
+  const lng = state.live.lng;
   liveMap = L.map(el, {
     zoomControl: true,
     attributionControl: true,
-  }).setView([lat, lng], 12);
+  }).setView(lat != null && lng != null ? [lat, lng] : [20, 0], lat != null ? 12 : 2);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -652,24 +653,67 @@ async function loadLivePlaces(opts = {}) {
       state.live.lat = opts.lat;
       state.live.lng = opts.lng;
       state.live.label = opts.label || state.live.label || null;
+      state.live.fromCache = false;
+      if (typeof PlacesLive.saveLastLocation === "function") {
+        PlacesLive.saveLastLocation({
+          lat: opts.lat,
+          lng: opts.lng,
+          label: state.live.label,
+        });
+      }
     } else if (state.live.lat == null || state.live.lng == null || opts.regeo) {
+      // Warm start from last phone location while GPS resolves
+      if (
+        (state.live.lat == null || state.live.lng == null) &&
+        typeof PlacesLive.loadLastLocation === "function"
+      ) {
+        const cached = PlacesLive.loadLastLocation();
+        if (cached) {
+          state.live.lat = cached.lat;
+          state.live.lng = cached.lng;
+          state.live.label = cached.label || state.live.label;
+          state.live.fromCache = true;
+        }
+      }
       try {
-        const pos = await PlacesLive.getCurrentPosition();
+        const pos = await PlacesLive.getCurrentPosition({ allowCache: true });
         state.live.lat = pos.lat;
         state.live.lng = pos.lng;
         state.live.accuracy = pos.accuracy;
-        try {
-          const label = await PlacesLive.reverseGeocode(pos.lat, pos.lng);
-          if (label) state.live.label = label;
-        } catch {
-          /* ignore */
+        state.live.fromCache = !!pos.fromCache;
+        if (!pos.fromCache || !state.live.label) {
+          try {
+            const label = await PlacesLive.reverseGeocode(pos.lat, pos.lng);
+            if (label) {
+              state.live.label = label;
+              PlacesLive.saveLastLocation?.({
+                lat: pos.lat,
+                lng: pos.lng,
+                accuracy: pos.accuracy,
+                label,
+              });
+            }
+          } catch {
+            /* ignore reverse failures */
+          }
+        }
+        if (pos.permissionDenied && pos.fromCache) {
+          state.live.error =
+            "Using last known location — enable location in browser settings for live GPS.";
         }
       } catch (geoErr) {
-        // Keep previous coords if we had them
         if (state.live.lat == null || state.live.lng == null) {
           throw geoErr;
         }
+        // Have coords (cache) — continue with warning
+        state.live.error =
+          (geoErr && geoErr.message) ||
+          "GPS unavailable — showing last known or city area.";
       }
+    }
+
+    if (state.live.lat == null || state.live.lng == null) {
+      throw Object.assign(new Error("No location yet"), { code: 0 });
     }
 
     const radiusM =
@@ -685,20 +729,27 @@ async function loadLivePlaces(opts = {}) {
     state.live.sources = sources || [provider];
     state.live.lastSport = sport;
     state.live.lastFetchedAt = Date.now();
-    state.live.error = places.length
-      ? null
-      : "No venues found in this radius — try a wider area or another city.";
+    if (!places.length) {
+      state.live.error =
+        "No venues found in this radius — try a wider city search.";
+    } else if (!state.live.error || !/permission|GPS|secure|blocked/i.test(state.live.error)) {
+      state.live.error = null;
+    }
   } catch (e) {
     console.warn("loadLivePlaces", e);
     const code = e && e.code;
-    if (code === 1) {
+    if (e && e.secure === false) {
+      state.live.error = e.message;
+    } else if (code === 1) {
       state.live.error =
-        "Location permission denied. Type a city below (e.g. Austin, TX) or enable location.";
+        "Location blocked. Open site settings → allow Location, or type a city below.";
     } else if (code === 2 || code === 3) {
       state.live.error =
-        "Could not get GPS. Type a city (e.g. Austin, TX) and search, or try again.";
+        "Could not get a GPS fix. Move near a window, wait, or type a city (e.g. Austin TX).";
     } else if (code === 0) {
-      state.live.error = "Location unavailable on this device — enter a city below.";
+      state.live.error =
+        e.message ||
+        "Location unavailable — enter a city below, or open the HTTPS app and allow location.";
     } else {
       state.live.error =
         (e && e.message) || "Could not load live venues. Check network and try Get latest.";
@@ -757,11 +808,15 @@ function updateLiveStatusBar() {
     const where =
       L.label ||
       (L.lat != null ? `${L.lat.toFixed(3)}, ${L.lng.toFixed(3)}` : "your area");
+    const cacheNote = L.fromCache ? " · last known" : "";
     el.innerHTML = `<span class="live-dot"></span> <strong>${L.places.length} live</strong> · ${escapeHtml(
       providerLabel(L.provider)
-    )} · ${escapeHtml(where)}`;
+    )} · ${escapeHtml(where)}${cacheNote}${
+      L.error ? `<br/><span class="err-soft">${escapeHtml(L.error)}</span>` : ""
+    }`;
   } else {
-    el.textContent = "Allow location or enter a city — results are live map data only.";
+    el.textContent =
+      "Tap “Use my location” (allow when prompted) or enter a city — live map data only.";
   }
 }
 
@@ -2207,18 +2262,20 @@ function paintNixSamples(samples) {
   });
 }
 
-function openProfileSettings() {
+function openProfileSettings(opts = {}) {
+  const historyMode = opts.historyMode || "push";
   state.profilePanel = "settings";
+  state.tab = "profile";
+  $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === "profile"));
+  showScreen("profile");
   const main = $("#profileMain");
   const settings = $("#profileSettings");
   main?.classList.add("hidden");
   settings?.classList.remove("hidden");
-  // Bind studio when opening settings
   const repHost = $("#representFields");
   if (repHost) renderRepresentStudio(repHost);
   if (typeof UpdateCheck !== "undefined") {
     try {
-      // allow re-mount if host was empty
       const card = $("#appUpdateCard");
       if (card) card.dataset.ready = "";
       UpdateCheck.mountProfileCard();
@@ -2228,7 +2285,6 @@ function openProfileSettings() {
     }
   }
   renderGear();
-  // notify prefs already in settings DOM — re-render
   const notifyHost = $("#notifyPrefs");
   if (notifyHost) {
     const n = ensureNotify();
@@ -2256,17 +2312,25 @@ function openProfileSettings() {
       });
     });
   }
+  if (historyMode === "push") pushNav({ view: "settings", tab: "profile" });
+  else if (historyMode === "replace") replaceNav({ view: "settings", tab: "profile" });
   $("#profileSettings")?.scrollTo?.(0, 0);
   const screen = $("#screen-profile");
   if (screen) screen.scrollTop = 0;
 }
 
-function closeProfileSettings() {
+function closeProfileSettings(opts = {}) {
+  const useHistory = opts.useHistory !== false;
+  if (useHistory && !state._navSilent && history.state?.view === "settings") {
+    history.back();
+    return;
+  }
   state.profilePanel = "main";
   $("#profileSettings")?.classList.add("hidden");
   $("#profileMain")?.classList.remove("hidden");
+  if (!state._navSilent) replaceNav({ view: "tab", tab: "profile" });
   renderProfile();
-  $("#screen-profile") && ($("#screen-profile").scrollTop = 0);
+  if ($("#screen-profile")) $("#screen-profile").scrollTop = 0;
 }
 
 function paintProfileHero() {
@@ -2343,7 +2407,9 @@ function renderProfile() {
   }
   if ($("#settingsBack") && !$("#settingsBack").dataset.bound) {
     $("#settingsBack").dataset.bound = "1";
-    $("#settingsBack").addEventListener("click", () => closeProfileSettings());
+    $("#settingsBack").addEventListener("click", () =>
+      closeProfileSettings({ useHistory: true })
+    );
   }
 
   const sportsHost = $("#profileSports");
@@ -2592,6 +2658,7 @@ function navUrl(entry) {
   if (entry.view === "gym" && entry.gymId) {
     return `#/gym/${encodeURIComponent(entry.gymId)}`;
   }
+  if (entry.view === "settings") return "#/profile/settings";
   if (entry.view === "picker") return `#/${entry.tab || state.tab || "home"}/sports`;
   if (entry.view === "overlay" && entry.name) {
     return `#/${entry.tab || state.tab || "home"}/${entry.name}`;
@@ -2604,12 +2671,14 @@ function parseLocationToEntry() {
   const raw = (location.hash || "").replace(/^#/, "");
   if (!raw || raw === "/" || raw === "") return { view: "tab", tab: "home" };
   const path = raw.startsWith("/") ? raw.slice(1) : raw;
-  // gym/<id>
   if (path.startsWith("gym/")) {
     return { view: "gym", gymId: decodeURIComponent(path.slice(4)), tab: "gyms" };
   }
   const parts = path.split("/").filter(Boolean);
   const tab = MAIN_TABS.has(parts[0]) ? parts[0] : "home";
+  if (parts[0] === "profile" && parts[1] === "settings") {
+    return { view: "settings", tab: "profile" };
+  }
   if (parts[1] === "sports") return { view: "picker", tab };
   if (parts[1] === "feedback" || parts[1] === "about") {
     return { view: "overlay", name: parts[1], tab };
@@ -2721,7 +2790,6 @@ function applyNavEntry(entry, { isPop = false } = {}) {
   state._navSilent = true;
   try {
     if (entry.view === "gym" && entry.gymId) {
-      // Ensure gyms tab context, open detail without pushing again
       state.tab = "gyms";
       $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === "gyms"));
       if (!findGym(entry.gymId) && state.live.places.length === 0) {
@@ -2736,6 +2804,11 @@ function applyNavEntry(entry, { isPop = false } = {}) {
       } else {
         openGymDetail(entry.gymId, { historyMode: "none" });
       }
+      return;
+    }
+
+    if (entry.view === "settings") {
+      openProfileSettings({ historyMode: "none" });
       return;
     }
 
@@ -2755,8 +2828,11 @@ function applyNavEntry(entry, { isPop = false } = {}) {
       return;
     }
 
-    // Main tab
+    // Main tab — close nested UI first
     closeOverlays({ fromHistory: true });
+    state.profilePanel = "main";
+    $("#profileSettings")?.classList.add("hidden");
+    $("#profileMain")?.classList.remove("hidden");
     switchTab(entry.tab || "home", { historyMode: "none" });
   } finally {
     state._navSilent = false;
@@ -2764,19 +2840,34 @@ function applyNavEntry(entry, { isPop = false } = {}) {
 }
 
 function goBackInApp() {
-  // Prefer browser history when we have stack depth
-  if (window.history.length > 1) {
-    history.back();
-    return;
-  }
-  // Fallback
-  if ($("#screen-gym-detail")?.classList.contains("active")) {
-    switchTab("gyms", { historyMode: "replace" });
+  // Nested layers first (native stack feel)
+  if (state.profilePanel === "settings") {
+    closeProfileSettings({ useHistory: true });
     return;
   }
   const picker = $("#sportPicker");
   if (picker && !picker.classList.contains("hidden")) {
-    picker.classList.add("hidden");
+    closeSportPicker({ useHistory: true });
+    return;
+  }
+  if ($("#screen-gym-detail")?.classList.contains("active")) {
+    if (history.state?.view === "gym" || (location.hash || "").includes("/gym/")) {
+      history.back();
+    } else {
+      switchTab("gyms", { historyMode: "replace" });
+    }
+    return;
+  }
+  if (document.getElementById("feedbackSheet") || document.getElementById("aboutSheet")) {
+    if (history.state?.view === "overlay") history.back();
+    else {
+      document.getElementById("feedbackSheet")?.remove();
+      document.getElementById("aboutSheet")?.remove();
+    }
+    return;
+  }
+  if (window.history.length > 1) {
+    history.back();
     return;
   }
   switchTab("home", { historyMode: "replace" });
@@ -2788,22 +2879,11 @@ function bindSystemBack() {
     applyNavEntry(entry, { isPop: true });
   });
 
-  // Android back often maps to history; also handle Escape for desktop
+  // Escape = in-app back (desktop + some devices)
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      const picker = $("#sportPicker");
-      if (picker && !picker.classList.contains("hidden")) {
-        e.preventDefault();
-        if (history.state?.view === "picker") history.back();
-        else {
-          picker.classList.add("hidden");
-        }
-        return;
-      }
-      if ($("#screen-gym-detail")?.classList.contains("active")) {
-        e.preventDefault();
-        goBackInApp();
-      }
+      e.preventDefault();
+      goBackInApp();
     }
   });
 }
@@ -3024,23 +3104,39 @@ function bind() {
     } else {
       state.sport = null;
     }
+
+    // Restore last phone location so gyms can load before GPS returns
+    if (typeof PlacesLive !== "undefined" && PlacesLive.loadLastLocation) {
+      const cached = PlacesLive.loadLastLocation();
+      if (cached) {
+        state.live.lat = cached.lat;
+        state.live.lng = cached.lng;
+        state.live.label = cached.label || null;
+        state.live.fromCache = true;
+      }
+    }
+
     renderStageSwatches();
     applySkin(state.sport, { flash: false });
     bind();
 
     // Deep link / restore hash, then seed history for system back button
     const entry = parseLocationToEntry();
-    if (entry.view === "gym" || entry.view === "picker" || entry.view === "overlay") {
+    if (
+      entry.view === "gym" ||
+      entry.view === "picker" ||
+      entry.view === "overlay" ||
+      entry.view === "settings"
+    ) {
       applyNavEntry(entry);
     } else {
       const tab = entry.tab && MAIN_TABS.has(entry.tab) ? entry.tab : state.tab || "home";
-      // Soft replace so the first back leaves the site only after user drills in
       switchTab(tab, { historyMode: "replace" });
     }
 
     safeRenderAll();
-    // Live places immediately — real data, not stubs
-    loadLivePlaces({ force: true });
+    // Live places — GPS + last known + city fallback messaging
+    loadLivePlaces({ force: true, regeo: true });
 
     if (typeof RollPhaseShell !== "undefined") {
       RollPhaseShell.applyMode();
