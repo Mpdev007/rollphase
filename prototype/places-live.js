@@ -228,6 +228,8 @@ const PlacesLive = (() => {
           headers: {
             "Content-Type": "application/x-www-form-urlencoded",
             Accept: "application/json",
+            // Public Overpass instances ask apps to identify themselves
+            "User-Agent": "RollPhase/1.0 (athlete venue discovery; https://github.com/Mpdev007/rollphase)",
           },
           body: `data=${encodeURIComponent(query)}`,
         });
