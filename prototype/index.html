@@ -77,7 +77,7 @@
               <strong id="repLabel">Representing</strong>
               <span id="repSub">Choose club vibe in Profile</span>
             </div>
-            <button type="button" class="rep-edit tab-jump" data-tab="profile">Edit</button>
+            <button type="button" class="rep-edit" id="repEditStrip" type="button">Edit</button>
           </div>
 
           <main class="screens">
@@ -197,85 +197,122 @@
               <div id="feedBody" class="list"></div>
             </section>
 
-            <!-- PROFILE -->
+            <!-- PROFILE — main identity; fine-tuning lives under Settings -->
             <section class="screen" data-screen="profile" id="screen-profile">
-              <div class="profile-hero">
-                <div class="avatar">VL</div>
-                <div>
-                  <h2>Vlad</h2>
-                  <p class="muted">Austin area · Adult</p>
+              <div id="profileMain">
+                <div class="profile-hero">
+                  <div class="avatar-wrap">
+                    <div class="avatar" id="profileAvatar">VL</div>
+                    <label class="avatar-edit" title="Change photo">
+                      <input type="file" id="profilePhotoFile" accept="image/*" hidden />
+                      Photo
+                    </label>
+                  </div>
+                  <div class="profile-hero-meta">
+                    <h2 id="profileDisplayName">Athlete</h2>
+                    <p class="muted" id="profileAreaLine">Near you · Adult</p>
+                    <button type="button" class="btn-ghost profile-settings-btn" id="btnOpenSettings">Settings</button>
+                  </div>
+                </div>
+
+                <div class="card static">
+                  <h3>About you</h3>
+                  <div class="social-field">
+                    <label>Display name</label>
+                    <input type="text" id="profileNameInput" placeholder="Your name" autocomplete="nickname" />
+                  </div>
+                  <div class="social-field">
+                    <label>Area</label>
+                    <input type="text" id="profileAreaInput" placeholder="City or area" autocomplete="address-level2" />
+                  </div>
+                </div>
+
+                <div class="card static">
+                  <h3>Your sports</h3>
+                  <p class="muted small">Set a <strong>first choice</strong> so Feed and Home prioritize that sport.</p>
+                  <div class="sport-tags" id="profileSports"></div>
+                </div>
+
+                <div class="card static">
+                  <h3>My places</h3>
+                  <p class="muted small">Saved gyms — open, specials, stay updated.</p>
+                  <div id="myPlaces"></div>
+                </div>
+
+                <div class="card static">
+                  <h3>I represent…</h3>
+                  <p class="muted small">Club name and crest on your strip. Colors and fine-tune live in Settings.</p>
+                  <div id="representSummary"></div>
+                </div>
+
+                <div class="card static">
+                  <h3>Social</h3>
+                  <p class="muted small">Optional links on your athlete card.</p>
+                  <div class="social-fields" id="socialFields"></div>
+                </div>
+
+                <div class="card static">
+                  <h3>Following</h3>
+                  <div id="followingList"></div>
+                </div>
+
+                <div class="card static">
+                  <h3>My venue reviews</h3>
+                  <p class="muted small">Ratings help other athletes know what’s worth it.</p>
+                  <div id="myReviews"></div>
                 </div>
               </div>
 
-              <div class="card static">
-                <h3>Your sports</h3>
-                <p class="muted small">Set a <strong>first choice</strong> so Feed and Home prioritize that sport. You can still train and explore others anytime.</p>
-                <div class="sport-tags" id="profileSports"></div>
-              </div>
-
-              <div class="card static">
-                <h3>Get latest</h3>
-                <p class="muted small">After we push to Git, the live app updates automatically. If it doesn’t, pull the newest build here.</p>
-                <div id="appUpdateCard"></div>
-              </div>
-
-              <div class="card static">
-                <h3>Stay in the loop</h3>
-                <p class="muted small">What you want emphasized. Critical updates from your first-choice sport and saved places.</p>
-                <div id="notifyPrefs"></div>
-              </div>
-
-              <div class="card static">
-                <h3>My places</h3>
-                <p class="muted small">Saved gyms and places you’ve trained — quick open, specials, and stay updated.</p>
-                <div id="myPlaces"></div>
-              </div>
-
-              <div class="card static">
-                <h3>I represent…</h3>
-                <div id="representFields"></div>
-              </div>
-
-              <div class="card static">
-                <h3>My venue reviews</h3>
-                <p class="muted small">Ratings help other athletes know what’s worth it.</p>
-                <div id="myReviews"></div>
-              </div>
-
-              <div class="card static">
-                <h3>Social profiles</h3>
-                <p class="muted small">Optional links on your athlete card.</p>
-                <div class="social-fields" id="socialFields"></div>
-              </div>
-
-              <div class="card static">
-                <h3>Following</h3>
-                <div id="followingList"></div>
-              </div>
-
-              <div class="card static">
-                <h3>Gear (this sport)</h3>
-                <div class="seg" id="gearSeg" style="margin:10px 0">
-                  <button type="button" class="seg-btn active" data-gear="shops">Shops</button>
-                  <button type="button" class="seg-btn" data-gear="needs">Needs</button>
+              <!-- Settings sub-panel (colors, privacy, app, gear) -->
+              <div id="profileSettings" class="profile-settings hidden">
+                <button type="button" class="back-btn" id="settingsBack">‹ Profile</button>
+                <div class="section-head" style="margin-top:4px">
+                  <h2>Settings</h2>
                 </div>
-                <div id="gearShops" class="list"></div>
-                <div id="gearNeeds" class="list hidden"></div>
-              </div>
+                <p class="hint">Fine-tuning and app preferences — kept off the main profile.</p>
 
-              <div class="card static">
-                <h3>Privacy</h3>
-                <label class="toggle-row"><span>Open to train</span><input type="checkbox" checked /></label>
-                <label class="toggle-row"><span>Show in “here now”</span><input type="checkbox" checked /></label>
-                <label class="toggle-row"><span>Event push notifications</span><input type="checkbox" checked /></label>
-              </div>
+                <div class="card static">
+                  <h3>Look · I represent</h3>
+                  <p class="muted small">Colors, pattern, crop, and smart palette from your logo.</p>
+                  <div id="representFields"></div>
+                </div>
 
-              <div class="card static warn">
-                <h3>Teen safety (demo)</h3>
-                <p class="small" style="margin-bottom:10px">Partner pool isolation.</p>
-                <div class="seg" id="ageDemo">
-                  <button type="button" class="seg-btn active" data-age="adult">Adult</button>
-                  <button type="button" class="seg-btn" data-age="teen">Teen 16–17</button>
+                <div class="card static">
+                  <h3>Notifications</h3>
+                  <p class="muted small">What to emphasize in Feed and future push alerts.</p>
+                  <div id="notifyPrefs"></div>
+                </div>
+
+                <div class="card static">
+                  <h3>Privacy</h3>
+                  <label class="toggle-row"><span>Open to train</span><input type="checkbox" id="privOpenTrain" checked /></label>
+                  <label class="toggle-row"><span>Show in “here now”</span><input type="checkbox" id="privShowHere" checked /></label>
+                  <label class="toggle-row"><span>Event push notifications</span><input type="checkbox" id="privEventPush" checked /></label>
+                </div>
+
+                <div class="card static">
+                  <h3>Get latest</h3>
+                  <p class="muted small">Pull the newest build after we push to Git.</p>
+                  <div id="appUpdateCard"></div>
+                </div>
+
+                <div class="card static">
+                  <h3>Gear (this sport)</h3>
+                  <div class="seg" id="gearSeg" style="margin:10px 0">
+                    <button type="button" class="seg-btn active" data-gear="shops">Shops</button>
+                    <button type="button" class="seg-btn" data-gear="needs">Needs</button>
+                  </div>
+                  <div id="gearShops" class="list"></div>
+                  <div id="gearNeeds" class="list hidden"></div>
+                </div>
+
+                <div class="card static warn">
+                  <h3>Teen safety</h3>
+                  <p class="small" style="margin-bottom:10px">Partner pool isolation (demo).</p>
+                  <div class="seg" id="ageDemo">
+                    <button type="button" class="seg-btn active" data-age="adult">Adult</button>
+                    <button type="button" class="seg-btn" data-age="teen">Teen 16–17</button>
+                  </div>
                 </div>
               </div>
             </section>

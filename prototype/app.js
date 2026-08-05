@@ -9,6 +9,8 @@ const state = {
   rankFilter: "all",
   gearMode: "shops",
   feedMode: "foryou",
+  /** profile main vs nested settings (colors / fine-tune) */
+  profilePanel: "main",
   agePool: "adult",
   openToTrain: true,
   checkedInGym: null,
@@ -38,6 +40,7 @@ function emptyProfile() {
     displayName: "Guest",
     area: "",
     ageBand: "Adult",
+    photoDataUrl: null,
     sports: [],
     primarySportId: null,
     favorites: [],
@@ -1829,27 +1832,100 @@ function renderGear() {
   }
 }
 
+/** Profile main: identity only — name, crest, strip on/off. Colors → Settings. */
+function renderRepresentSummary(host) {
+  if (!host) return;
+  const rep = ensureRepresent();
+  host.innerHTML = `
+    <label class="toggle-row">
+      <span>Show “I represent” strip</span>
+      <input type="checkbox" id="repEnabledMain" ${rep.enabled ? "checked" : ""} />
+    </label>
+    <div class="social-field" style="margin-top:10px">
+      <label>Club / team name</label>
+      <input type="text" id="repLabelMain" value="${escapeHtml(rep.label || "")}" placeholder="What you represent" />
+    </div>
+    <div class="rep-logo-row" style="margin-top:12px">
+      <div class="rep-logo-preview" id="repLogoPreviewMain"></div>
+      <div class="rep-logo-actions">
+        <label class="btn-ghost rep-file-btn">
+          Upload crest
+          <input type="file" id="repLogoFileMain" accept="image/*" hidden />
+        </label>
+        <button type="button" class="btn-ghost" id="repLogoClearMain" ${rep.logoDataUrl ? "" : "disabled"}>Remove</button>
+      </div>
+    </div>
+    <div class="rep-summary-swatches" aria-hidden="true">
+      <span style="background:${escapeHtml(rep.colors?.primary || "#121212")}"></span>
+      <span style="background:${escapeHtml(rep.colors?.secondary || "#f4f4f4")}"></span>
+      <span style="background:${escapeHtml(rep.colors?.accent || "#8a8a8a")}"></span>
+    </div>
+    <button type="button" class="btn-ghost" id="repOpenSettings" style="width:100%;margin-top:12px;padding:12px">
+      Colors &amp; look · Settings
+    </button>
+  `;
+
+  // Mini logo preview on main
+  const prev = $("#repLogoPreviewMain");
+  if (prev) {
+    if (rep.logoDataUrl) {
+      const z = rep.crop?.zoom || 1;
+      const x = (rep.crop?.x ?? 0.5) * 100;
+      const y = (rep.crop?.y ?? 0.5) * 100;
+      prev.innerHTML = `<img src="${rep.logoDataUrl}" alt="" style="transform:scale(${z});object-position:${x}% ${y}%" />`;
+    } else {
+      prev.innerHTML = `<span class="muted small">No crest</span>`;
+    }
+  }
+
+  $("#repEnabledMain")?.addEventListener("change", (e) => {
+    rep.enabled = e.target.checked;
+    applyRepresentStrip();
+  });
+  $("#repLabelMain")?.addEventListener("input", (e) => {
+    rep.label = e.target.value;
+    if (rep.label.trim()) rep.enabled = true;
+    applyRepresentStrip();
+  });
+  $("#repLogoFileMain")?.addEventListener("change", (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      rep.logoDataUrl = String(reader.result);
+      rep.crop = { zoom: 1, x: 0.5, y: 0.5 };
+      rep.enabled = true;
+      rep.mode = "custom";
+      renderRepresentSummary(host);
+      applyRepresentStrip();
+    };
+    reader.readAsDataURL(file);
+  });
+  $("#repLogoClearMain")?.addEventListener("click", () => {
+    rep.logoDataUrl = null;
+    renderRepresentSummary(host);
+    applyRepresentStrip();
+  });
+  $("#repOpenSettings")?.addEventListener("click", () => openProfileSettings());
+}
+
+/** Settings only: colors, pattern, crop, smart palette — not on main profile scroll. */
 function renderRepresentStudio(host) {
+  if (!host) return;
   const rep = ensureRepresent();
   const c = rep.colors;
   const templates = typeof REPRESENT_TEMPLATES !== "undefined" ? REPRESENT_TEMPLATES : [];
   host.innerHTML = `
     <p class="muted small" style="margin-bottom:10px">
-      Personalize <strong style="color:var(--text)">your</strong> strip — club name, crest, and colors.
-      Only upload marks you have rights to use. This does not rebrand every sport for everyone.
+      Fine-tune your strip look. Club name and crest upload also work from Profile.
     </p>
 
-    <label class="toggle-row">
-      <span>Show “I represent” strip</span>
-      <input type="checkbox" id="repEnabled" ${rep.enabled ? "checked" : ""} />
-    </label>
-
-    <div class="social-field" style="margin-top:10px">
-      <label>Name</label>
-      <input type="text" id="repLabelInput" value="${escapeHtml(rep.label || "")}" placeholder="What you call your team / academy" />
+    <div class="social-field">
+      <label>Name (same as profile)</label>
+      <input type="text" id="repLabelInput" value="${escapeHtml(rep.label || "")}" placeholder="Team / academy name" />
     </div>
 
-    <h4 class="rep-section-title">1 · Logo</h4>
+    <h4 class="rep-section-title">Logo crop</h4>
     <div class="rep-logo-row">
       <div class="rep-logo-preview" id="repLogoPreview"></div>
       <div class="rep-logo-actions">
@@ -1866,7 +1942,7 @@ function renderRepresentStudio(host) {
       <label class="rep-slider-label">Pan Y <input type="range" id="repPanY" min="0" max="1" step="0.01" value="${rep.crop.y ?? 0.5}" /></label>
     </div>
 
-    <h4 class="rep-section-title">2 · Colors (fully free)</h4>
+    <h4 class="rep-section-title">Colors</h4>
     <div class="rep-color-grid">
       ${["primary", "secondary", "accent"]
         .map(
@@ -1878,20 +1954,20 @@ function renderRepresentStudio(host) {
           </div>
           <input type="text" class="rep-hex" data-hex-key="${key}" value="${escapeHtml(c[key])}" maxlength="7" />
           <label class="rep-slider-label">R
-            <input type="range" data-rgb="${key}" data-ch="r" min="0" max="255" value="${parseInt((c[key] || '#000000').slice(1, 3), 16) || 0}" />
+            <input type="range" data-rgb="${key}" data-ch="r" min="0" max="255" value="${parseInt((c[key] || "#000000").slice(1, 3), 16) || 0}" />
           </label>
           <label class="rep-slider-label">G
-            <input type="range" data-rgb="${key}" data-ch="g" min="0" max="255" value="${parseInt((c[key] || '#000000').slice(3, 5), 16) || 0}" />
+            <input type="range" data-rgb="${key}" data-ch="g" min="0" max="255" value="${parseInt((c[key] || "#000000").slice(3, 5), 16) || 0}" />
           </label>
           <label class="rep-slider-label">B
-            <input type="range" data-rgb="${key}" data-ch="b" min="0" max="255" value="${parseInt((c[key] || '#000000').slice(5, 7), 16) || 0}" />
+            <input type="range" data-rgb="${key}" data-ch="b" min="0" max="255" value="${parseInt((c[key] || "#000000").slice(5, 7), 16) || 0}" />
           </label>
         </div>`
         )
         .join("")}
     </div>
 
-    <h4 class="rep-section-title">3 · Pattern</h4>
+    <h4 class="rep-section-title">Pattern</h4>
     <div class="filter-row" id="repPatternPills">
       ${["rings", "stripe", "mesh", "solid"]
         .map(
@@ -1901,16 +1977,14 @@ function renderRepresentStudio(host) {
         .join("")}
     </div>
 
-    <h4 class="rep-section-title">4 · Optional starters</h4>
-    <p class="muted small">Seeds only — every value stays editable after.</p>
+    <h4 class="rep-section-title">Starter palettes</h4>
     <div class="filter-row" id="repTemplatePills" style="flex-wrap:wrap">
       ${templates
         .map((t) => `<button type="button" class="pill" data-template="${t.id}">${escapeHtml(t.name)}</button>`)
         .join("")}
     </div>
 
-    <h4 class="rep-section-title">5 · Smart colors from logo</h4>
-    <p class="muted small">Upload a crest, then let RollPhase suggest a matching palette and pattern. Tweak anything after.</p>
+    <h4 class="rep-section-title">Smart colors from logo</h4>
     <div class="rep-nix-actions">
       <button type="button" class="btn-primary" id="nixAnalyze" ${rep.logoDataUrl ? "" : "disabled"}>
         ${rep.nix?.status === "working" ? "Working…" : "Suggest colors from logo"}
@@ -1919,20 +1993,11 @@ function renderRepresentStudio(host) {
     </div>
     <div class="webhook-box" id="nixNotes">${escapeHtml(rep.nix?.notes || "Upload a logo, then suggest colors.")}</div>
     <div class="rep-samples" id="nixSamples"></div>
-
-    <p class="muted small" style="margin-top:12px">
-      Only upload marks you may use. Your crest stays on your profile — it does not become the app’s sport theme for everyone.
-    </p>
   `;
 
-  // preview logo
   paintRepLogoPreview();
   paintNixSamples(rep.nix?.samples || []);
 
-  $("#repEnabled")?.addEventListener("change", (e) => {
-    rep.enabled = e.target.checked;
-    applyRepresentStrip();
-  });
   $("#repLabelInput")?.addEventListener("input", (e) => {
     rep.label = e.target.value;
     if (rep.label.trim()) rep.enabled = true;
@@ -1973,8 +2038,7 @@ function renderRepresentStudio(host) {
 
   host.querySelectorAll("[data-color-key]").forEach((input) => {
     input.addEventListener("input", () => {
-      const key = input.dataset.colorKey;
-      setRepColor(key, input.value, host);
+      setRepColor(input.dataset.colorKey, input.value, host);
     });
   });
   host.querySelectorAll("[data-hex-key]").forEach((input) => {
@@ -2143,16 +2207,145 @@ function paintNixSamples(samples) {
   });
 }
 
-function renderProfile() {
+function openProfileSettings() {
+  state.profilePanel = "settings";
+  const main = $("#profileMain");
+  const settings = $("#profileSettings");
+  main?.classList.add("hidden");
+  settings?.classList.remove("hidden");
+  // Bind studio when opening settings
+  const repHost = $("#representFields");
+  if (repHost) renderRepresentStudio(repHost);
   if (typeof UpdateCheck !== "undefined") {
     try {
+      // allow re-mount if host was empty
+      const card = $("#appUpdateCard");
+      if (card) card.dataset.ready = "";
       UpdateCheck.mountProfileCard();
       UpdateCheck.paintBuildLabel();
     } catch {
       /* ignore */
     }
   }
+  renderGear();
+  // notify prefs already in settings DOM — re-render
+  const notifyHost = $("#notifyPrefs");
+  if (notifyHost) {
+    const n = ensureNotify();
+    const ps = sportMeta(primarySportId());
+    const rows = [
+      ["primarySport", ps ? `First choice: ${ps.short}` : "First-choice sport updates", "Events and news for your main sport"],
+      ["savedGyms", "Saved places", "When a gym you saved posts or hosts something"],
+      ["specials", "Specials & open sessions", "Open mats, free weeks, one-off nights"],
+      ["tournaments", "Tournaments & races", "Registration windows and big dates"],
+      ["liveNearby", "Live nearby", "Who’s training / sessions happening now"],
+    ];
+    notifyHost.innerHTML = rows
+      .map(
+        ([key, label, sub]) => `
+      <label class="toggle-row">
+        <span><strong style="display:block;font-size:0.85rem">${escapeHtml(label)}</strong>
+        <span class="muted small">${escapeHtml(sub)}</span></span>
+        <input type="checkbox" data-notify-pref="${key}" ${n[key] ? "checked" : ""} />
+      </label>`
+      )
+      .join("");
+    notifyHost.querySelectorAll("[data-notify-pref]").forEach((input) => {
+      input.addEventListener("change", () => {
+        ensureNotify()[input.dataset.notifyPref] = input.checked;
+      });
+    });
+  }
+  $("#profileSettings")?.scrollTo?.(0, 0);
+  const screen = $("#screen-profile");
+  if (screen) screen.scrollTop = 0;
+}
+
+function closeProfileSettings() {
+  state.profilePanel = "main";
+  $("#profileSettings")?.classList.add("hidden");
+  $("#profileMain")?.classList.remove("hidden");
+  renderProfile();
+  $("#screen-profile") && ($("#screen-profile").scrollTop = 0);
+}
+
+function paintProfileHero() {
   const p = state.profile;
+  const name = p.displayName || "Athlete";
+  const area = p.area || "Near you";
+  const age = p.ageBand || "Adult";
+  if ($("#profileDisplayName")) $("#profileDisplayName").textContent = name;
+  if ($("#profileAreaLine")) $("#profileAreaLine").textContent = `${area} · ${age}`;
+  const av = $("#profileAvatar");
+  if (av) {
+    if (p.photoDataUrl) {
+      av.innerHTML = `<img src="${p.photoDataUrl}" alt="" />`;
+      av.classList.add("has-photo");
+    } else {
+      av.textContent = initials(name);
+      av.classList.remove("has-photo");
+    }
+  }
+  if ($("#profileNameInput") && document.activeElement !== $("#profileNameInput")) {
+    $("#profileNameInput").value = p.displayName || "";
+  }
+  if ($("#profileAreaInput") && document.activeElement !== $("#profileAreaInput")) {
+    $("#profileAreaInput").value = p.area || "";
+  }
+}
+
+function renderProfile() {
+  // Panel visibility
+  if (state.profilePanel === "settings") {
+    $("#profileMain")?.classList.add("hidden");
+    $("#profileSettings")?.classList.remove("hidden");
+  } else {
+    $("#profileSettings")?.classList.add("hidden");
+    $("#profileMain")?.classList.remove("hidden");
+  }
+
+  paintProfileHero();
+
+  const photoInput = $("#profilePhotoFile");
+  if (photoInput && photoInput.dataset.bound !== "1") {
+    photoInput.dataset.bound = "1";
+    photoInput.addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        state.profile.photoDataUrl = String(reader.result);
+        paintProfileHero();
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  const nameIn = $("#profileNameInput");
+  if (nameIn && nameIn.dataset.bound !== "1") {
+    nameIn.dataset.bound = "1";
+    nameIn.addEventListener("input", (e) => {
+      state.profile.displayName = e.target.value;
+      paintProfileHero();
+    });
+  }
+  const areaIn = $("#profileAreaInput");
+  if (areaIn && areaIn.dataset.bound !== "1") {
+    areaIn.dataset.bound = "1";
+    areaIn.addEventListener("input", (e) => {
+      state.profile.area = e.target.value;
+      paintProfileHero();
+    });
+  }
+
+  if ($("#btnOpenSettings") && !$("#btnOpenSettings").dataset.bound) {
+    $("#btnOpenSettings").dataset.bound = "1";
+    $("#btnOpenSettings").addEventListener("click", () => openProfileSettings());
+  }
+  if ($("#settingsBack") && !$("#settingsBack").dataset.bound) {
+    $("#settingsBack").dataset.bound = "1";
+    $("#settingsBack").addEventListener("click", () => closeProfileSettings());
+  }
+
   const sportsHost = $("#profileSports");
   if (sportsHost) {
     const list = profileSports();
@@ -2189,34 +2382,6 @@ function renderProfile() {
       btn.addEventListener("click", () => setPrimarySport(btn.dataset.primarySport));
     });
     $("#profileAddSport")?.addEventListener("click", () => openSportPicker({ addMode: true }));
-  }
-
-  const notifyHost = $("#notifyPrefs");
-  if (notifyHost) {
-    const n = ensureNotify();
-    const ps = sportMeta(primarySportId());
-    const rows = [
-      ["primarySport", ps ? `First choice: ${ps.short}` : "First-choice sport updates", "Events and news for your main sport"],
-      ["savedGyms", "Saved places", "When a gym you saved posts or hosts something"],
-      ["specials", "Specials & open sessions", "Open mats, free weeks, one-off nights"],
-      ["tournaments", "Tournaments & races", "Registration windows and big dates"],
-      ["liveNearby", "Live nearby", "Who’s training / sessions happening now"],
-    ];
-    notifyHost.innerHTML = rows
-      .map(
-        ([key, label, sub]) => `
-      <label class="toggle-row">
-        <span><strong style="display:block;font-size:0.85rem">${escapeHtml(label)}</strong>
-        <span class="muted small">${escapeHtml(sub)}</span></span>
-        <input type="checkbox" data-notify-pref="${key}" ${n[key] ? "checked" : ""} />
-      </label>`
-      )
-      .join("");
-    notifyHost.querySelectorAll("[data-notify-pref]").forEach((input) => {
-      input.addEventListener("change", () => {
-        ensureNotify()[input.dataset.notifyPref] = input.checked;
-      });
-    });
   }
 
   const placesHost = $("#myPlaces");
@@ -2257,9 +2422,14 @@ function renderProfile() {
     });
   }
 
-  const repHost = $("#representFields");
-  if (repHost) {
-    renderRepresentStudio(repHost);
+  // Main profile: summary only. Full color studio only in Settings.
+  const sumHost = $("#representSummary");
+  if (sumHost && state.profilePanel !== "settings") {
+    renderRepresentSummary(sumHost);
+  }
+  if (state.profilePanel === "settings") {
+    const repHost = $("#representFields");
+    if (repHost) renderRepresentStudio(repHost);
   }
 
   const myRev = $("#myReviews");
@@ -2503,6 +2673,9 @@ function switchTab(tab, opts = {}) {
 
   closeOverlays({ fromHistory: state._navSilent });
 
+  // Leaving profile resets to main (not buried in Settings)
+  if (tab !== "profile") state.profilePanel = "main";
+
   state.tab = tab;
   $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === tab));
   showScreen(tab);
@@ -2521,8 +2694,14 @@ function switchTab(tab, opts = {}) {
   if (tab === "partners") renderPartners();
   if (tab === "feed") renderFeed();
   if (tab === "profile") {
-    renderProfile();
-    renderGear();
+    if (opts.settings) {
+      openProfileSettings();
+    } else {
+      state.profilePanel = "main";
+      $("#profileSettings")?.classList.add("hidden");
+      $("#profileMain")?.classList.remove("hidden");
+      renderProfile();
+    }
   }
 
   if (typeof RollPhaseShell !== "undefined") {
@@ -2695,6 +2874,11 @@ function bind() {
   bindSystemBack();
 
   document.body.addEventListener("click", (e) => {
+    if (e.target.closest("#repEditStrip")) {
+      switchTab("profile", { historyMode: "replace", settings: true });
+      return;
+    }
+
     const demo = e.target.closest("[data-demo]");
     if (demo) {
       setDemoMode(demo.dataset.demo);
