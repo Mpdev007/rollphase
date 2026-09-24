@@ -23,6 +23,9 @@ build/
 # Local only
 prototype/assets/team/
 
-# Local API keys — copy from config.example.js
+# Local API keys ï¿½ copy from config.example.js
 prototype/config.js
+prototype/.enrich-cache.json
+prototype/__pycache__/
+**/__pycache__/
 
