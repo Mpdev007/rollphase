@@ -108,3 +108,23 @@ Fight night’s body is base 0.02, roughness 0.5. On the 312 canvas at vis 0 the
 At vis 0 the head centre does not change between hues 43, 218 and 322 on any pack. The pixels that do change are the two rings: Fight night 2962, Neon 3810, Chalk 2008, Ice 3058, Bright 3107.
 
 `after/profile-figure-<pack>.png` is the art at 400 px beside its mask. The contact sheets and DPR 1 strips were rendered again.
+
+## Follow-up 6: generated headgear
+
+The stroke is unchanged. The hand-built figure is gone (`profile_figure.py` deleted). The profile icon is an image-generated combat-sports headgear, empty, in the same 3/4 view for every pack. Raw files are in `gen/profile-<pack>.png`. Each was keyed with `key_green.py` onto a 1024 px RGBA square. The gold masks flood warm pixels in from the silhouette and keep thin gold lines, and they do not paint the leather. Chalk uses the chalk outline. At 4× the keyed edge has no green pixels (green channel is not above both neighbours).
+
+Prompts, one per pack. Each used `ref/headgear-concept.jpg` plus that pack’s `-home.png` and `-gyms.png`.
+
+Fight night: "A single empty combat-sports headgear, the same object as the reference head guard: forehead pad, two cheek pads, an open face hole, and a chin strap. Nothing is inside it. No person, no head, no face, no mannequin, no neck. Three-quarter front view, turned slightly to the right, centered, filling about 80 percent of a square frame. Premium 3D product render, soft studio light from the upper right, same material and lighting language as the black house and black map pin references: matte black leather with polished gold piping along every outer edge and along the edge of the face opening. Background is a perfectly flat solid chroma green, hex #00B140, edge to edge. No floor, no cast shadow, no gradient, no stand, no text, no logo."
+
+Neon: the same subject and framing, "gloss black leather with glowing warm-gold light strips along every outer edge and along the face-opening edge, with a soft gold glow that stays on the object."
+
+Chalk: the same subject and framing, "glossy white ceramic, soft and clean, with no gold anywhere."
+
+Ice: the same subject and framing, "frosted translucent ice or glass with thin polished gold edges and a faint inner glow."
+
+Bright: the same subject and framing, "cream or ivory enamel with polished gold trim along every outer edge and the face-opening edge."
+
+At vis 0 the Fight night body stays about `(44, 39, 38)` at hues 43, 218 and 322, while a piping pixel moves from `(104, 93, 46)` to `(46, 70, 104)` to `(104, 46, 81)`. Neon, Ice and Bright bodies stay dark, glass and cream. Chalk’s white body stays about `(223, 218, 212)` and only the outline moves.
+
+`after/profile-headgear-<pack>.png` is the art at 400 px beside its mask. The contact sheets and DPR 1 strips were rendered again.
