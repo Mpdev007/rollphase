@@ -98,3 +98,13 @@ Fight night is matte black with a polished gold rim. Neon is gloss black with a 
 At vis 0, hue 218 against hue 43 changes no pixels in the inner 45% of the profile icon. Fight night moves 6889 outer pixels, Neon 7828, Chalk 1300, Ice 10572, Bright 10521. The same is true at hue 322. There is no sheet and no cone.
 
 `after/profile-medallion-<pack>.png` is the source art at 400px beside its trim mask. The contact sheets and DPR 1 strips were rendered again.
+
+## Follow-up 5: profile figure
+
+The stroke is unchanged. The medallion is gone. `profile_medallion.py` is deleted. `profile_figure.py` builds the figure to the given sizes: a UV sphere head at z = 1.72 and a shoulder dome cut flat at z = 0, with the 0.04 gap left between them. The shoulder bottom edge is bevelled. Two toruses are the only gold: an elliptical base ring, and a head ring whose axis points at the camera. The camera is 85 mm, 20 degrees to the side and 12 degrees up, aimed at (0, 0, 0.95). Cycles renders at 1280 px. This Blender build has no OpenImageDenoise, so the render is 128 samples with denoising off.
+
+Fight night’s body is base 0.02, roughness 0.5. On the 312 canvas at vis 0 the lit head stays about `(71, 69, 68)` at hues 43, 218 and 322. Neon is gloss black with emission 2 on the gold. Chalk is white ceramic, rings included, and its mask is the chalk outline. Ice is frosted glass. Bright is cream enamel. For the gold packs the mask pass sets the body to holdout and the rings to flat white, so hidden ring pixels are not in the mask.
+
+At vis 0 the head centre does not change between hues 43, 218 and 322 on any pack. The pixels that do change are the two rings: Fight night 2962, Neon 3810, Chalk 2008, Ice 3058, Bright 3107.
+
+`after/profile-figure-<pack>.png` is the art at 400 px beside its mask. The contact sheets and DPR 1 strips were rendered again.
