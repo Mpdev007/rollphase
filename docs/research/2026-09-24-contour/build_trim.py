@@ -181,7 +181,28 @@ def gold_mask(im, art, job):
         soft[face_ellipse(on.shape, on, dist, inset=6.0)] = 0
     if job == "partners":
         soft[head_interior(on, dist)] = 0
+    if job in ("profile", "partners"):
+        soft = add_light_line(soft, h, s, v, on, dist)
     return soft, on, dist
+
+
+def add_light_line(soft, h, s, v, on, dist):
+    """Thin bright gold rim, including the face-to-slab edge. Skin stays 0."""
+    light = on & (h >= 38) & (h <= 60) & (s >= 0.45) & (v >= 0.62)
+    if not light.any():
+        return soft
+    thick = ndimage.distance_transform_edt(light)
+    thin = light & (thick <= 3.0)
+    vmin = ndimage.grey_erosion(np.where(on, v, 1.0), size=5)
+    near = (dist <= 16) | ((v - vmin) >= 0.18)
+    core = thin & near
+    if not core.any():
+        return soft
+    true_skin = ((h <= 35) | (h >= 350)) & (s >= 0.12) & (v >= 0.08)
+    grown = ndimage.binary_dilation(core, iterations=1) & on & ~true_skin
+    line = soften(grown)
+    line[true_skin] = 0
+    return np.maximum(soft, line)
 
 
 def build_one(art, job):

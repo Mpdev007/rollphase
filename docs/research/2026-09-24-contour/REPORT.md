@@ -48,6 +48,12 @@ Fight night home at vis 0 (no stroke) is dark on the shadow side and clearly blu
 
 I looked at the Fight night, Chalk and Bright sheets at full cell size (312px), and sampled the other two packs the same way.
 
+## Follow-up 2: people outline light
+
+The skin clear stays. On the shared head and on the partner icons, the bright gold line is added back on top of that clear: hue 38–60, saturation at least 0.45, value at least 0.62, only where the line is thin and sits next to the silhouette or a darker edge (the face-to-slab line). It is dilated one pixel and feathered, then any pixel in the skin hue band (about 10–35°) is set back to 0. Chalk is unchanged. Home, gyms and feed masks are unchanged.
+
+At hue 218 and vis 0, that line is no longer gold: a few pixels at most remain on partners and profile (`after/zoom-light-<pack>.png`). Face centers stay skin-toned. The same sheets as before were re-rendered.
+
 ## Follow-up: skin bleed
 
 The 9px ring and the soft mask tail were painting skin. People icons no longer get that ring. On partners and profile, pixels in the skin hue band (about 0–40° and 350–360°, medium saturation) are forced to mask 0, including where they touch the silhouette. Profile also clears an ellipse over the head interior, so the cheek, jaw, temple and eyes stay out; only the rim remains. Partners clear the upper interior (hair and faces) past 8px in from the edge. Chalk uses the same skin clear and the head ellipse, which takes the right eye off `k-profile`.
