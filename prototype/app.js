@@ -3328,6 +3328,11 @@ function bind() {
   try {
     loadPersisted();
     applySettings(loadSettings());
+    const museLink = document.getElementById("museConnectLink");
+    if (museLink && location.hostname !== "127.0.0.1" && location.hostname !== "localhost") {
+      museLink.removeAttribute("href");
+      museLink.textContent = "Opens with the app premium";
+    }
     // Emphasize first-choice sport when profile has one (still optional to clear)
     if (state.sport) {
       /* kept from this phone */
