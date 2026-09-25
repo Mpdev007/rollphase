@@ -84,11 +84,43 @@ def soften(binary, sigma=1.15):
     dist_out = ndimage.distance_transform_edt(~grown)
     soft[dist_out > 2.2] = 0
     soft[hard > 0] = np.maximum(soft[hard > 0], 0.92)
-    soft[soft < 0.04] = 0
+    # drop the faint tail so a 0.1 mask cannot tint skin
+    soft[soft < 0.15] = 0
     return soft
 
 
-def chalk_mask(on, dist):
+def is_skin(h, s, v):
+    # peach, tan, lips. Gold bevel sits above ~42 and is left alone.
+    warm = (h <= 40) | (h >= 350)
+    return warm & (s >= 0.12) & (s <= 0.92) & (v >= 0.10)
+
+
+def face_ellipse(shape, on, dist, inset=5.0):
+    """Interior of the head, inside the opaque bounds, off the outer rim."""
+    ys, xs = np.nonzero(on)
+    if len(xs) == 0:
+        return np.zeros(shape, bool)
+    x0, x1 = xs.min(), xs.max()
+    y0, y1 = ys.min(), ys.max()
+    yy, xx = np.ogrid[0:shape[0], 0:shape[1]]
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    rx, ry = max((x1 - x0) / 2, 1), max((y1 - y0) / 2, 1)
+    inside = ((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2 <= 1.45
+    return inside & on & (dist > inset)
+
+
+def head_interior(on, dist, frac=0.46, inset=8.0):
+    """Upper part of a two-person icon, off the silhouette, where hair and faces sit."""
+    ys, xs = np.nonzero(on)
+    if len(xs) == 0:
+        return np.zeros(on.shape, bool)
+    y0, y1 = int(ys.min()), int(ys.max())
+    cut = y0 + (y1 - y0) * frac
+    rows = np.arange(on.shape[0])[:, None]
+    return on & (dist > inset) & (rows < cut)
+
+
+def chalk_mask(on, dist, h, s, v, job):
     # soft outer band of the white shape; falls off within ~16px so the body stays white
     width = 16.0
     t = np.clip(1 - dist / width, 0, 1)
@@ -98,6 +130,11 @@ def chalk_mask(on, dist):
     t[~on] = 0
     rim = on & (dist <= 2.5)
     t[rim] = np.maximum(t[rim], 0.85)
+    skin = is_skin(h, s, v)
+    t[skin] = 0
+    if job in ("profile", "partners"):
+        t[face_ellipse(on.shape, on, dist, inset=3.5)] = 0
+    t[t < 0.15] = 0
     return t
 
 
@@ -107,31 +144,44 @@ def gold_mask(im, art, job):
     on = im[:, :, 3] > 24
     dist = ndimage.distance_transform_edt(on)
     lo, hi = p["hue"]
-    strict = on & (h >= lo) & (h <= hi) & (s >= p["sat"]) & (v >= p["val"])
+    skin = is_skin(h, s, v) if job in ("profile", "partners") else np.zeros(on.shape, bool)
+    strict = on & (h >= lo) & (h <= hi) & (s >= p["sat"]) & (v >= p["val"]) & ~skin
     # looser warm pixels only in the outer fringe, so a dark shadow rim still joins
     loose = (
         on
         & (dist <= 12)
-        & (h >= lo - 6)
+        & (h >= (max(lo - 6, 42) if job in ("profile", "partners") else lo - 6))
         & (h <= hi + 6)
-        & (s >= max(0.14, p["sat"] - 0.14))
+        & (s >= max(0.18, p["sat"] - 0.10))
         & (v >= 0.08)
+        & ~skin
     )
     edge = on & (dist <= 2.0)
     bevel = connected_to_edge(strict & (dist <= p["bevel"]), edge)
     fringe = connected_to_edge(loose & (dist <= 12), edge | ndimage.binary_dilation(bevel, iterations=1))
     mask = bevel | fringe
-    # Every pack keeps a thin ring on the silhouette so the shadow side
-    # changes even when that side of the bevel is too dark to count as gold.
-    ring = on & (dist <= 9)
-    mask = mask | ring
+    # Thin ring so a dark, non-skin shadow edge still takes the hue.
+    # People icons do not get this ring: it was painting cheeks, arms and hair.
+    if job not in ("profile", "partners"):
+        ring = on & (dist <= 9) & ~skin
+        mask = mask | ring
     if job == "feed" and art != "k":
         thick = ndimage.distance_transform_edt(strict)
         ribbon = strict & (thick <= 6.5)
         touch = ndimage.binary_dilation(mask, iterations=2)
         ribs = connected_to_edge(ribbon, touch & ribbon)
         mask = mask | ribs
-    return soften(mask), on, dist
+    if job == "profile":
+        mask = mask & ~face_ellipse(on.shape, on, dist, inset=6.0)
+    if job == "partners":
+        mask = mask & ~head_interior(on, dist)
+    soft = soften(mask)
+    soft[skin] = 0
+    if job == "profile":
+        soft[face_ellipse(on.shape, on, dist, inset=6.0)] = 0
+    if job == "partners":
+        soft[head_interior(on, dist)] = 0
+    return soft, on, dist
 
 
 def build_one(art, job):
@@ -141,7 +191,8 @@ def build_one(art, job):
         on = im[:, :, 3] > 24
         dist = ndimage.distance_transform_edt(on)
         # chalk profile/partners still have skin; the rim is the white edge, not a gold flood
-        soft = chalk_mask(on, dist)
+        h, s, v = hsv(im[:, :, :3])
+        soft = chalk_mask(on, dist, h, s, v, job)
     else:
         soft, on, dist = gold_mask(im, art, job)
     out = np.clip(np.round(soft * 255), 0, 255).astype(np.uint8)

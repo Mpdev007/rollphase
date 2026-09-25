@@ -186,7 +186,7 @@
         const img = new Image();
         img.onload = () => { images.set(file, img); resolve(); };
         img.onerror = () => resolve();
-        img.src = file + "?v=12";
+        img.src = file + "?v=14";
       });
     }
     function boxBlur(src, w, h, radius) {
@@ -256,69 +256,85 @@
       const sheet = document.createElement("canvas");
       sheet.width = W;
       sheet.height = H;
+      const base = new Uint8ClampedArray(W * H * 4);
+      const maskList = [];
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = y * w + x;
+          const o = ((y + pad) * W + (x + pad)) * 4;
+          const q = i * 4;
+          base[o] = snap.data[q];
+          base[o + 1] = snap.data[q + 1];
+          base[o + 2] = snap.data[q + 2];
+          base[o + 3] = snap.data[q + 3];
+          if (mask[i] >= 38) maskList.push(i);
+        }
+      }
+      const strokeList = [];
+      for (let i = 0; i < outside.length; i++) {
+        const od = outside[i];
+        if (od > 0 && od < reachMax) strokeList.push(i);
+      }
       const rec = {
-        w, h, W, H, pad, snap, mask, outside, sheet,
+        w, h, W, H, pad, snap, mask, outside, sheet, base,
+        maskList: new Uint32Array(maskList),
+        strokeList: new Uint32Array(strokeList),
         box: { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 }
       };
       cache.set(file, rec);
       return rec;
     }
-    function shiftHue(r, g, b, target, t) {
+    function shiftHue(r, g, b, target, t, m) {
       const hsv = rgbToHsv(r, g, b);
       const s = hsv[1];
       const v = hsv[2];
       const floor = 0.32 + 0.55 * t;
-      const base = Math.max(s, floor);
-      const sat = Math.min(1, base + (1 - base) * 0.22 * t);
-      const val = Math.min(1, v * (1 + 0.4 * t) + 0.05 * t);
+      const lifted = Math.min(1, Math.max(s, floor) + (1 - Math.max(s, floor)) * 0.22 * t);
+      const lit = Math.min(1, v * (1 + 0.4 * t) + 0.05 * t);
+      // A faint mask keeps the pixel's own saturation. Only a solid trim is lifted.
+      const sat = s + (lifted - s) * m;
+      const val = v + (lit - v) * m;
       return hsvToRgb(target, sat, val);
     }
     function renderSheet(src, hueDeg, visibility) {
-      const { w, h, W, H, pad, snap, mask, outside } = src;
+      const { w, h, W, H, pad, snap, mask, outside, base, maskList, strokeList } = src;
       const out = new ImageData(W, H);
       const d = out.data;
+      d.set(base);
       const s = snap.data;
       const t = Math.max(0, Math.min(1, visibility / 100));
       const target = ((hueDeg % 360) + 360) % 360 / 360;
       const reach = t * 5.5 * (w / 104);
       const stroke = hsvToRgb(target, 0.96, 0.4 + 0.58 * t);
       const feather = Math.max(1.1, reach * 0.22);
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-          const i = y * w + x;
-          const o = (y + pad) * W + (x + pad);
-          const p = o * 4;
-          const q = i * 4;
-          d[p] = s[q];
-          d[p + 1] = s[q + 1];
-          d[p + 2] = s[q + 2];
-          d[p + 3] = s[q + 3];
-          const m = mask[i] / 255;
-          if (m > 0.02) {
-            const rgb = shiftHue(s[q], s[q + 1], s[q + 2], target, t);
-            d[p] = s[q] * (1 - m) + rgb[0] * m;
-            d[p + 1] = s[q + 1] * (1 - m) + rgb[1] * m;
-            d[p + 2] = s[q + 2] * (1 - m) + rgb[2] * m;
-          }
-        }
+      for (let n = 0; n < maskList.length; n++) {
+        const i = maskList[n];
+        const m = mask[i] / 255;
+        const y = (i / w) | 0;
+        const x = i - y * w;
+        const p = ((y + pad) * W + (x + pad)) * 4;
+        const q = i * 4;
+        const rgb = shiftHue(s[q], s[q + 1], s[q + 2], target, t, m);
+        d[p] = s[q] * (1 - m) + rgb[0] * m;
+        d[p + 1] = s[q + 1] * (1 - m) + rgb[1] * m;
+        d[p + 2] = s[q + 2] * (1 - m) + rgb[2] * m;
       }
       if (reach > 0.3) {
         const limit = reach + feather;
-        for (let y = 0; y < H; y++) {
-          for (let x = 0; x < W; x++) {
-            const od = outside[y * W + x];
-            if (od <= 0 || od >= limit) continue;
-            const cover = od <= reach ? 1 : 1 - (od - reach) / feather;
-            const sa = cover * (0.62 + 0.38 * t);
-            const p = (y * W + x) * 4;
-            const da = d[p + 3] / 255;
-            const outA = sa + da * (1 - sa);
-            if (outA <= 0) continue;
-            d[p] = (stroke[0] * sa + d[p] * da * (1 - sa)) / outA;
-            d[p + 1] = (stroke[1] * sa + d[p + 1] * da * (1 - sa)) / outA;
-            d[p + 2] = (stroke[2] * sa + d[p + 2] * da * (1 - sa)) / outA;
-            d[p + 3] = Math.min(255, outA * 255);
-          }
+        for (let n = 0; n < strokeList.length; n++) {
+          const i = strokeList[n];
+          const od = outside[i];
+          if (od >= limit) continue;
+          const cover = od <= reach ? 1 : 1 - (od - reach) / feather;
+          const sa = cover * (0.62 + 0.38 * t);
+          const p = i * 4;
+          const da = d[p + 3] / 255;
+          const outA = sa + da * (1 - sa);
+          if (outA <= 0) continue;
+          d[p] = (stroke[0] * sa + d[p] * da * (1 - sa)) / outA;
+          d[p + 1] = (stroke[1] * sa + d[p + 1] * da * (1 - sa)) / outA;
+          d[p + 2] = (stroke[2] * sa + d[p + 2] * da * (1 - sa)) / outA;
+          d[p + 3] = Math.min(255, outA * 255);
         }
       }
       const sheetCtx = src.sheet.getContext("2d");

@@ -48,6 +48,23 @@ Fight night home at vis 0 (no stroke) is dark on the shadow side and clearly blu
 
 I looked at the Fight night, Chalk and Bright sheets at full cell size (312px), and sampled the other two packs the same way.
 
+## Follow-up: skin bleed
+
+The 9px ring and the soft mask tail were painting skin. People icons no longer get that ring. On partners and profile, pixels in the skin hue band (about 0–40° and 350–360°, medium saturation) are forced to mask 0, including where they touch the silhouette. Profile also clears an ellipse over the head interior, so the cheek, jaw, temple and eyes stay out; only the rim remains. Partners clear the upper interior (hair and faces) past 8px in from the edge. Chalk uses the same skin clear and the head ellipse, which takes the right eye off `k-profile`.
+
+Mask values under 0.15 are stored as 0. `shiftHue()` only lifts saturation in proportion to the mask, and the page ignores anything below 0.15. Repaints walk a precomputed list of trim and stroke pixels (about 37ms per slider event on this machine). The outer stroke math is unchanged.
+
+Re-rendered the fifteen contact sheets in `after/`, plus `after/zoom-skin-<pack>.png` (partners and profile, hue 218, vis 0).
+
+Per icon, what is still not clean:
+
+- f-home, n-home, i-home, r-home, k-home: clean. Outline on both sides. No skin.
+- f-gyms, n-gyms, i-gyms, r-gyms, k-gyms: clean. Outline on both sides. No skin.
+- f-feed, n-feed, i-feed, r-feed, k-feed: clean. Card seams still recolour. No skin.
+- f-partners, n-partners, i-partners, r-partners, k-partners: face, neck and hand interiors are mask 0. A gold rim can still sit on the outer edge of an arm where that edge is the bevel, not skin hue.
+- f-profile, n-profile, i-profile, r-profile: one shared head. Cheek, jaw, temple and eye are mask 0. The rim around the skull still takes the hue.
+- k-profile: face and right eye are mask 0. The white rim still takes the hue.
+
 ## What is left
 
 - Interior gold that is not the outline (window glow, warm wall colour, trophies inside the form) stays gold. It is not connected as trim, which is what keeps faces and windows clean.
