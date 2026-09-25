@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Glyph options — not in the app</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: #07090d;
+      color: #f4f6f8;
+    }
+    main { max-width: 1040px; margin: 0 auto; padding: 28px 20px 80px; }
+    h1 { font-size: 1.7rem; letter-spacing: -0.03em; margin: 0 0 8px; }
+    h2 { font-size: 1.05rem; margin: 36px 0 6px; }
+    p { color: #9aa3b2; max-width: 68ch; line-height: 1.45; margin: 0 0 8px; }
+    .set { display: flex; gap: 22px; flex-wrap: wrap; align-items: end; margin-top: 14px; }
+    figure { margin: 0; text-align: center; }
+    figcaption { color: #9aa3b2; font-size: 0.75rem; margin-top: 8px; }
+    img { object-fit: contain; background: none; display: block; }
+    .sizes { display: flex; gap: 10px; align-items: end; justify-content: center; margin-top: 8px; }
+    .s160 { width: 148px; height: 148px; }
+    .s72 { width: 64px; height: 64px; }
+    .s32 { width: 32px; height: 32px; }
+    .phones { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; }
+    .phone {
+      width: 360px;
+      background: #10141b;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 28px;
+      overflow: hidden;
+    }
+    .phone h3 { margin: 0; padding: 14px 16px 0; font-size: 0.85rem; font-weight: 600; }
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      padding: 14px 6px 16px;
+    }
+    .tabs div { text-align: center; font-size: 0.65rem; color: #8e97a8; }
+    .tabs img { width: 40px; height: 40px; margin: 0 auto 4px; }
+    .tabs .on { color: #ff8a3d; }
+    .sports { display: flex; gap: 10px; padding: 4px 14px 18px; }
+    .sports img { width: 72px; height: 72px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Two sports looks</h1>
+    <p>Preview only. These are freestanding on the same near-black the app uses. The small mark under each icon is tab size. Pick a tab row. The sports row can sit with either one.</p>
+
+    <h2>A · Bright</h2>
+    <p>Cream, orange, and navy. Built to read on a dark screen.</p>
+    <div class="set" id="bright"></div>
+
+    <h2>B · Fight night</h2>
+    <p>Matte black with a gold edge, same family as the boxing glove.</p>
+    <div class="set" id="night"></div>
+
+    <h2>Sports</h2>
+    <p>Belt, gloves, mat, and paddle. Same sizes: hero, chip, tab.</p>
+    <div class="set" id="sports"></div>
+
+    <h2>On a phone</h2>
+    <div class="phones">
+      <div class="phone">
+        <h3>A · Bright</h3>
+        <div class="tabs" id="phoneA"></div>
+        <div class="sports" id="gearA"></div>
+      </div>
+      <div class="phone">
+        <h3>B · Fight night</h3>
+        <div class="tabs" id="phoneB"></div>
+        <div class="sports" id="gearB"></div>
+      </div>
+    </div>
+  </main>
+  <script>
+    const v = "4";
+    const bright = [["Home","a-home.png"],["Gyms","a-gyms.png"],["Partners","a-partners.png"],["Feed","a-feed.png"],["Profile","a-profile.png"]];
+    const night = [["Home","b-home.png"],["Gyms","b-gyms.png"],["Partners","b-partners.png"],["Feed","b-feed.png"],["Profile","b-profile.png"]];
+    const sports = [["BJJ","sport-bjj.png"],["Boxing","sport-boxing.png"],["MMA","sport-mma.png"],["Yoga","sport-yoga.png"],["Pickleball","sport-pickle.png"]];
+    function src(file) { return file + "?v=" + v; }
+    function add(host, name, file) {
+      const fig = document.createElement("figure");
+      fig.innerHTML = `<img class="s160" src="${src(file)}" alt="" /><div class="sizes"><img class="s72" src="${src(file)}" alt=""><img class="s32" src="${src(file)}" alt=""></div><figcaption>${name}</figcaption>`;
+      host.appendChild(fig);
+    }
+    function tabs(host, rows) {
+      rows.forEach((x, i) => {
+        const div = document.createElement("div");
+        if (i === 0) div.className = "on";
+        div.innerHTML = `<img src="${src(x[1])}" alt="" /><div>${x[0]}</div>`;
+        host.appendChild(div);
+      });
+    }
+    function gear(host) {
+      sports.forEach((x) => {
+        const img = document.createElement("img");
+        img.src = src(x[1]);
+        img.alt = x[0];
+        host.appendChild(img);
+      });
+    }
+    bright.forEach((x) => add(document.getElementById("bright"), x[0], x[1]));
+    night.forEach((x) => add(document.getElementById("night"), x[0], x[1]));
+    sports.forEach((x) => add(document.getElementById("sports"), x[0], x[1]));
+    tabs(document.getElementById("phoneA"), bright);
+    tabs(document.getElementById("phoneB"), night);
+    gear(document.getElementById("gearA"));
+    gear(document.getElementById("gearB"));
+  </script>
+</body>
+</html>
