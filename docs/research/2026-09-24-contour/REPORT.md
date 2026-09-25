@@ -88,3 +88,13 @@ The profile icon is a new mesh in all five packs. `profile_bust.py` builds one m
 `f-profile.png`, `n-profile.png`, `i-profile.png` and `r-profile.png` are no longer one shared file. On the Fight night bust, hue 43, 218 and 322 at vis 0 move the same trim pixels (about 7.7k on the 312 canvas) from gold to blue to magenta.
 
 Sheets in `after/` were rendered again for every pack at hues 43, 218 and 322 and vis 0, 46 and 100. `after/dpr1-<pack>.png` is the DPR 1 strip at hue 218 and vis 100, scaled 4× with nearest-neighbour.
+
+## Follow-up 4: profile medallion
+
+The crisp stroke is unchanged. The bust is gone. `profile_bust.py` is deleted. `profile_medallion.py` builds a coin: a disc of diameter 2 and thickness 0.32 with bevelled edges, a recessed field, and a raised head-and-shoulders relief (a round head and a shoulder arc clipped by the field). The only gold object is a torus around the disc edge, about 0.09 thick. The coin is tilted 25 degrees back, turned 20 degrees, and lit from the upper right. Cycles renders it at 1280px on a transparent background.
+
+Fight night is matte black with a polished gold rim. Neon is gloss black with a gold rim that emits. Ice is frosted glass with a gold rim. Bright is cream enamel with a gold rim. Chalk is white ceramic, rim included, and its mask is the chalk outline rule. For the gold packs, `-trim.png` is the rim’s own alpha pass, and the centre of that mask is empty. The relief is a slightly lighter finish than the field so it still reads at 42px.
+
+At vis 0, hue 218 against hue 43 changes no pixels in the inner 45% of the profile icon. Fight night moves 6889 outer pixels, Neon 7828, Chalk 1300, Ice 10572, Bright 10521. The same is true at hue 322. There is no sheet and no cone.
+
+`after/profile-medallion-<pack>.png` is the source art at 400px beside its trim mask. The contact sheets and DPR 1 strips were rendered again.
