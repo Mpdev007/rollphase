@@ -6,7 +6,7 @@ The hue slider now recolours the whole outline light on all five packs. Visibili
 
 - `docs/research/2026-09-24-contour/build_trim.py` writes one 8-bit mask per icon: `prototype/glyph-preview/<art>-<job>-trim.png`.
 - `prototype/glyph-preview/mocks.html` recolours only those masked pixels, by shifting hue and keeping each pixel’s own saturation and value (lifted as visibility goes up). It no longer paints a fixed inward ring, and it no longer uses `isAccent()`.
-- Visibility adds a short outer stroke on the silhouette (zero at vis 0, about 5.5 reference pixels at vis 100) plus more saturation and brightness on the trim. The stroke does not grow inward.
+- Visibility adds a short outer stroke on the silhouette. Follow-up 3 replaced the old dark feather (about 5.5 reference pixels) with a bright opaque line, zero at vis 0 and about 3 CSS px at vis 100 on the 104px strip. The stroke does not grow inward.
 - Icons are fitted from their opaque bounds, bottom-aligned, so the old uneven padding no longer shifts them in the tab bar or the strip.
 
 ## How the mask is built
@@ -76,3 +76,15 @@ Per icon, what is still not clean:
 - Interior gold that is not the outline (window glow, warm wall colour, trophies inside the form) stays gold. It is not connected as trim, which is what keeps faces and windows clean.
 - At vis 0 the shadow side is a dark version of the hue. The loud, even line is the lit bevel plus the outer stroke, which is what visibility turns up.
 - Homes are a little shorter than the tall icons (pins, athletes) because they are wider. They share the same bottom edge and the same fit box; the art’s aspect ratio is unchanged.
+
+## Follow-up 3: crisp stroke, and a faceless bust
+
+The outer stroke is no longer a dark feathered band. In `renderSheet()` the width is `visibility/100 * 3 * (imageWidth/104)` source pixels, so at the 104px strip it is 0 at vis 0 and about 3 CSS px at vis 100. The colour is fixed at saturation 0.96 and value 0.92 (hue 218 is `(9, 92, 235)`). Coverage is fully opaque inside that width and falls off over 1 source pixel. There is no glow and no soft outer feather.
+
+Measured on the Fight night home strip at DPR 1: vis 46 is one solid CSS pixel of that blue, vis 100 stays inside about 3 CSS px of the vis-0 silhouette (median 2, max 3.2). The tab bar at 42px is about 1.4 CSS px at vis 100, which is the same stroke scaled with the icon. The icon edge at vis 0 jumps from the background in a single CSS pixel, and the page’s edge energy matches a Lanczos downscale of the source PNG (about 9.1 vs 9.0). DPR 1.25 shows the same canvases at 130px and 53px.
+
+The profile icon is a new mesh in all five packs. `profile_bust.py` builds one metaball bust (flattened head, short neck, rounded shoulders) and a separate gold trim (shoulder rim and a band around the head), lit from the upper right, and renders it with Cycles at 1280px on a transparent background. Fight night is matte black with polished gold, Neon is gloss black with a glowing gold edge, Ice is frosted glass with a gold edge, Bright is cream enamel with gold trim, and Chalk is white ceramic with no gold. The gold packs’ `-trim.png` is the trim object’s alpha from its own pass, with values under 0.15 stored as 0. Chalk uses the same soft silhouette rim as the other chalk icons. The other twenty icons are unchanged.
+
+`f-profile.png`, `n-profile.png`, `i-profile.png` and `r-profile.png` are no longer one shared file. On the Fight night bust, hue 43, 218 and 322 at vis 0 move the same trim pixels (about 7.7k on the 312 canvas) from gold to blue to magenta.
+
+Sheets in `after/` were rendered again for every pack at hues 43, 218 and 322 and vis 0, 46 and 100. `after/dpr1-<pack>.png` is the DPR 1 strip at hue 218 and vis 100, scaled 4× with nearest-neighbour.

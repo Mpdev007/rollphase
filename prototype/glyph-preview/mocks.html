@@ -186,7 +186,7 @@
         const img = new Image();
         img.onload = () => { images.set(file, img); resolve(); };
         img.onerror = () => resolve();
-        img.src = file + "?v=15";
+        img.src = file + "?v=16";
       });
     }
     function boxBlur(src, w, h, radius) {
@@ -304,9 +304,9 @@
       const s = snap.data;
       const t = Math.max(0, Math.min(1, visibility / 100));
       const target = ((hueDeg % 360) + 360) % 360 / 360;
-      const reach = t * 5.5 * (w / 104);
-      const stroke = hsvToRgb(target, 0.96, 0.4 + 0.58 * t);
-      const feather = Math.max(1.1, reach * 0.22);
+      const reach = t * 3 * (w / 104);
+      const stroke = hsvToRgb(target, 0.96, 0.92);
+      const aa = 1;
       for (let n = 0; n < maskList.length; n++) {
         const i = maskList[n];
         const m = mask[i] / 255;
@@ -319,14 +319,14 @@
         d[p + 1] = s[q + 1] * (1 - m) + rgb[1] * m;
         d[p + 2] = s[q + 2] * (1 - m) + rgb[2] * m;
       }
-      if (reach > 0.3) {
-        const limit = reach + feather;
+      if (reach > 0.05) {
+        const limit = reach + aa;
         for (let n = 0; n < strokeList.length; n++) {
           const i = strokeList[n];
           const od = outside[i];
           if (od >= limit) continue;
-          const cover = od <= reach ? 1 : 1 - (od - reach) / feather;
-          const sa = cover * (0.62 + 0.38 * t);
+          const cover = od <= reach ? 1 : 1 - (od - reach) / aa;
+          const sa = cover;
           const p = i * 4;
           const da = d[p + 3] / 255;
           const outA = sa + da * (1 - sa);
