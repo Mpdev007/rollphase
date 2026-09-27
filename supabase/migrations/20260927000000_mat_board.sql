@@ -176,3 +176,42 @@ select cron.schedule('matboard-prune', '17 4 * * *', $$
 $$);
 -- Keep the free project active: one tiny query a day counts as activity.
 select cron.schedule('matboard-keepalive', '0 6 * * *', $$ select count(*) from public.gyms $$);
+
+-- ---------- I5: the app-owned venue cache, searched before any OSM call ----------
+create or replace function public.gyms_near(p_lat double precision, p_lng double precision, p_km double precision default 12)
+returns table (id text, name text, city text, dropin_fee text, km double precision, lat double precision, lng double precision, slot_count bigint)
+language sql stable as $$
+  select g.id, g.name, g.city, g.dropin_fee,
+         st_distance(g.loc, st_setsrid(st_makepoint(p_lng, p_lat), 4326)::geography) / 1000,
+         st_y(g.loc::geometry), st_x(g.loc::geometry),
+         (select count(*) from public.slots s where s.gym_id = g.id and s.removed_at is null)
+  from public.gyms g
+  where st_dwithin(g.loc, st_setsrid(st_makepoint(p_lng, p_lat), 4326)::geography, p_km * 1000)
+  order by 5
+$$;
+
+-- Members report a venue as closed or wrong; two reports hide it from search until re-seeded.
+create table if not exists public.venue_reports (
+  gym_id     text not null references public.gyms (id) on delete cascade,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  reason     text not null check (reason in ('closed', 'moved', 'wrong-sport', 'duplicate', 'other')),
+  note       text check (char_length(note) <= 140),
+  created_at timestamptz not null default now(),
+  primary key (gym_id, user_id)
+);
+alter table public.venue_reports enable row level security;
+create policy "read reports" on public.venue_reports for select using (true);
+create policy "own report"   on public.venue_reports for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- ---------- I6: Web Push subscriptions (standard VAPID; sent by an edge function) ----------
+create table if not exists public.push_subscriptions (
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  gym_id     text not null references public.gyms (id) on delete cascade,
+  endpoint   text not null,
+  p256dh     text not null,
+  auth       text not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, gym_id, endpoint)
+);
+alter table public.push_subscriptions enable row level security;
+create policy "own subscription" on public.push_subscriptions for all using (user_id = auth.uid()) with check (user_id = auth.uid());
