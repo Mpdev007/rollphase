@@ -1,5 +1,6 @@
 -- Pure Brazilian Jiu Jitsu: kids and teen classes from the gym's published schedule (fetched 2026-09-27,
--- https://purebrazilianjiujitsu.com/schedule/). On the board these show counts only (see the kids migration).
+-- https://purebrazilianjiujitsu.com/schedule/). The times are public; who is coming is not, and counts are shown
+-- only to verified families, staff and admins (see the Family Access migration).
 -- Weekday: 0 = Sunday … 6 = Saturday. start_min = minutes after midnight (gym local time).
 
 insert into public.slots (gym_id, weekday, start_min, duration_min, sport, kind, audience, gear, note, source, source_url, confirmed_at)

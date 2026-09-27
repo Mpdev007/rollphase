@@ -69,7 +69,7 @@ Your work in this step (files: `prototype/supabase-client.js`, one `<script src=
 **Pure Brazilian Jiu Jitsu**, 6017 N Northwest Hwy, Chicago, IL 60631, (773) 413-8211 (the owner's gym). Gym id **`rp-pure-bjj-norwood-park`**.
 - It is **not in OpenStreetMap** (that building is tagged as a toy shop, way 163331058). So it is a RollPhase-native venue: `gyms.source = 'gym-website'`, with `address`, `phone` and `website` columns. Migration `supabase/migrations/20260927010000_native_gyms_and_sources.sql` added those columns plus `slots.source` / `slots.source_url`. Seed: `supabase/seed/first_gym.sql`. Both are applied live.
 - **13 adult mat times** from the gym's own published schedule (https://purebrazilianjiujitsu.com/schedule/, fetched 2026-09-27), each with `source = 'gym-website'` and no `created_by`.
-- **26 kids/teen classes** (21 kids, 5 teens) from the same schedule, `slots.audience = 'kids' | 'teens'` (seed `supabase/seed/first_gym_kids.sql`, applied live). The owner's rule: class **times are public**; **who is coming is not**. See step 11 and `LEVELS-AND-MATCH.md`. Until the corrected Family Access migration is applied (waits on the owner's go), the live database still hides kids/teen rows from everyone except verified families, staff and admins. Build for the corrected rule; step 11 says how to check both.
+- **26 kids/teen classes** (21 kids, 5 teens) from the same schedule, `slots.audience = 'kids' | 'teens'` (seed `supabase/seed/first_gym_kids.sql`, applied live). The owner's rule: class **times are public**; **who is coming is not**. See step 11 and `LEVELS-AND-MATCH.md`. Until the corrected Family Access migration is applied (waits on the owner's go), the live database still hides kids/teen rows from everyone except verified families, staff and admins. Build for the corrected rule. Check 11's signed-out and no-child cases will fail until the architect applies it; run them after.
 - Verified signed-out through the publishable key: `gyms_near(41.991, -87.796, 5)` returns it at 0.03 km with 13 mat times; `board_slots` returns all 13; signed-out writes are refused.
 
 What this means for your steps:
@@ -142,7 +142,7 @@ In `fetchNearby` (places-live.js), before any Overpass/Nominatim call: call `RP.
 ## 10. Remove what the board replaces (files: `prototype/app.js` (only the listed lines), `index.html` Partners section)
 
 - Delete the enrich call (`fetch("http://127.0.0.1:8877/enrich"…)`, app.js ~772-790) and the function around it. Hours now come from slots.
-- Partners tab: replace its filters and empty text with one honest card: "Who's training is on each gym's board." + a button to Gyms. Remove the "All belts / My belt ±1 / ≤ 3 mi" pills.
+- Partners tab: replace its filters and empty text with one honest card: "Who's training is on each gym's board." + a button to Gyms. Remove the "All belts / My belt ±1 / ≤ 3 mi" pills. This card is interim: Match (`LEVELS-AND-MATCH.md` section 2) replaces it later.
 - Feed › Live: show the user's own live check-in and, for saved gyms, their Here-now counts; otherwise the honest empty state.
 - The check-in button in `openGymDetail` (`#checkInHere`, app.js ~1808) is removed; the board's "I'm here" replaces it. `ReviewSystem.recordVisit` is called only from a successful `check_in()` result.
 - The "Visit verified" badge in reviews.js is shown only when a `checkins` row exists for that gym and user.
