@@ -11,7 +11,7 @@ For the implementing model (Sonnet 5). Read this whole file first, then `DESIGN.
 5. **Free tier only.** Never propose or enable a paid plan.
 6. **Privacy:** never store raw coordinates for a person. Check-ins store the fact of a valid visit only. Share links carry no user data. Location is rounded to 3 decimals before any third-party request.
 7. **Branch discipline:** work on `mat-board` (from `fix/base`). Push after every step. Never push to `master`, never run `scripts/ship.ps1`, never open a PR unless told.
-8. **Secrets:** only the Supabase **anon** key goes into the app. The service_role key never appears in any file, log or commit. `config.js` stays gitignored; the anon key goes in `prototype/config.public.js` (committed; it is public by design).
+8. **Secrets:** only the Supabase **publishable** key goes into the app (already in `prototype/config.public.js`, committed; it is public by design). The secret key never appears in any file, log or commit. `config.js` stays gitignored.
 9. **Files you own** are listed per step. Touch nothing else. If you need a change elsewhere, write it in your report as a request.
 10. **Style:** vanilla JS like the rest of `prototype/` (no build step, no framework). Match app.js idioms: `$()`, `escapeHtml()`, `buzz()`, `state`, `switchTab()`. Every string from the database or the network goes through `escapeHtml()` before `innerHTML`.
 
@@ -31,34 +31,38 @@ Serve the app for tests with `python -m http.server 8880 --bind 127.0.0.1` from 
 
 **Check 2:** `node tests/matboard/run.mjs` runs, opens the app, gets past the gate, and fails with a clear message if you insert `throw new Error("x")` at the top of `app.js` temporarily (then remove it). Screenshot of Home at `out/s2/home.png`.
 
-## 3. Backend (files: `supabase/**`, `prototype/config.public.js`, `prototype/supabase-client.js`)
+## 3. Backend: ALREADY LIVE (done by the architect on 2026-09-27; your job is the client)
 
-The owner runs `supabase login` and creates (or names) the project. You get the project ref, the URL and the **anon** key. If you do not have them, stop here and ask; do not invent placeholder keys that look real.
+The Supabase project exists and passed its kill tests. **Do not create another project, do not re-run the migration, do not change dashboard settings.**
 
-1. `supabase link --project-ref <ref>` from the repo root, then `supabase db push` to apply `supabase/migrations/20260927000000_mat_board.sql`. If the migration errors, fix the SQL (keep the intent) and record what changed.
-2. In the dashboard (owner does clicks; you tell him which): Authentication → Sign In / Providers → **enable Anonymous sign-ins**. Nothing else.
-3. Add `prototype/config.public.js`:
-   ```js
-   window.ROLLPHASE_PUBLIC = { supabaseUrl: "https://<ref>.supabase.co", supabaseAnonKey: "<anon key>" };
-   ```
-   and a `<script src="config.public.js">` tag before `supabase-client.js` (this one line in index.html is allowed).
-4. `prototype/supabase-client.js`: load `https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js` (add the script tag; record the exact version the CDN served in your report), create the client, and expose:
-   - `RP.db` (the client),
-   - `RP.user()` → the current user, signing in anonymously on first call (`signInAnonymously()`), session persisted (the client's default localStorage),
-   - `RP.ensureProfile(displayName, sport, belt)` → upserts `profiles` for the current user,
-   - `RP.online` boolean (from `navigator.onLine` + a failed request flag).
-   The anonymous sign-in limit is 30/hour/IP: sign in once, reuse the session, never sign in on every load.
-5. **pg_cron on free:** after `db push`, run `select * from cron.job;` through `supabase db query` (or the SQL editor). If the two jobs exist and `cron.job_run_details` shows a run within 24 h, cron works on free. If it does not, add `.github/workflows/keepalive.yml`: a daily cron that does one `GET <url>/rest/v1/gyms?select=id&limit=1` with the anon key as `apikey`. Report which path you used.
+| | |
+|---|---|
+| Project | `rollphase-prod` (org PhasePoint, Free plan), ref `nllqyfmuzyyrxpqjamgj`, East US (Ohio) |
+| URL | `https://nllqyfmuzyyrxpqjamgj.supabase.co` |
+| Publishable key (public by design) | already in `prototype/config.public.js` |
+| Schema | `supabase/migrations/20260927000000_mat_board.sql`, applied, **including** the least-privilege revokes and the realtime publication at the end of the file |
+| Auth | Anonymous sign-ins **on**. Auto-expose of new tables **off** (grants are explicit). Automatic RLS **on**. |
+| pg_cron | Works on the free plan: jobs `matboard-prune` and `matboard-keepalive` exist. No GitHub Actions keep-alive needed. |
+| Realtime | `slots`, `intents`, `checkins` are in `supabase_realtime`. |
+| Live test | `tests/matboard/s3-supabase.test.mjs`: **24/24 passed** on 2026-09-27, realtime delivery 336 ms. |
 
-**Check 3 (run these with the anon key against the live project; a small Node script under `tests/matboard/s3-supabase.spec.mjs`):**
-- `select` on `gyms`, `slots`, `intents`, `profiles` as an anonymous user returns 200 (RLS read policies).
-- Insert a `profiles` row as user A; try to update it as user B → **rejected**.
-- Insert a `slots` row as A; update it as B → **allowed** (shared timetable).
-- Insert an `intents` row as A; insert one for A's user_id as B → **rejected**.
-- Call `check_in('<test gym>', <lat 5 km away>, <lng>)` → error mentions "150 m". Call it from ≤ 50 m → returns a row; call again → the **same** row id (no duplicate).
-- Call `attest_belt(<B>, 'blue')` as A with no co-located check-ins → error. (Full handshake test is in step 8.)
-- `gyms_near(lat, lng, 25)` returns the test gym with `km` < 1.
-Print each result. All must pass.
+**Anything that needs the secret key, a new table, or a dashboard change: stop and write it as a request in your report.** The architect applies schema changes.
+
+Your work in this step (files: `prototype/supabase-client.js`, one `<script src="config.public.js">` and one supabase-js `<script>` tag in `index.html`):
+1. Load supabase-js from `https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js` (pinned; 2.117.2 is the version the live test used). Record the served file's SHA-256 in your report.
+2. `prototype/supabase-client.js` creates the client from `window.ROLLPHASE_PUBLIC.supabaseUrl` / `.supabaseKey` and exposes:
+   - `RP.db` (the client);
+   - `RP.user()`: the current user; signs in anonymously (`signInAnonymously()`) only when there is no stored session; the session persists in the client's default storage. The anonymous sign-in limit is **30 per hour per IP**, so never sign in on every load;
+   - `RP.ensureProfile(displayName, sport, belt)`: upserts `profiles` for the current user;
+   - `RP.online`: from `navigator.onLine` plus a failed-request flag.
+3. Never put the secret key anywhere. `config.public.js` holds only the URL and the publishable key.
+
+**Check 3:**
+- `cd tests/matboard && npm i && node s3-supabase.test.mjs` prints **24/24 passed**. Paste the output into your report.
+- The test leaves its own data behind: one gym whose id starts with `qa-gym-austin-`, its slot, "I'm in" and check-in, and two anonymous users. **List the ids it printed** in your report; the architect removes them. Do not try to delete them yourself: the app roles can't delete gyms, by design.
+- In the harness, the app page loads `supabase-client.js`, `RP.user()` returns a user id, and a second reload returns the **same** id (no second sign-in). Screenshot of the console line.
+
+**Hardening that waits for the owner (do not do it):** Supabase recommends a captcha on anonymous sign-ins (Cloudflare Turnstile, free). It needs a Cloudflare account and a dashboard change, so it's the owner's call.
 
 ## 4. Seed the first gym (files: `supabase/seed/first_gym.sql`)
 
@@ -141,7 +145,7 @@ In `fetchNearby` (places-live.js), before any Overpass/Nominatim call: call `RP.
 Write `docs/mat-board/REPORT.md`: per step, what changed (files), the check results with screenshot paths, anything skipped and why, anything you could not verify, the exact supabase-js version served by the CDN, the vendored lean-qr hashes, whether pg_cron worked on free, and a scorecard: % of checks passed (count them), % of steps done. Push `mat-board`. Do not merge. Do not ship.
 
 ## Appendix: the kill tests this playbook must satisfy (from INVENT-MAX section 4)
-- I1: two profiles see each other's slot within 2 s; "I'm in" within 2 s.
+- I1: two profiles see each other's slot within 2 s; "I'm in" within 2 s. (Backend part proven: 336 ms on 2026-09-27.)
 - I2: the printed QR decodes to the board URL and opens the app on that board.
 - I3: 5 km refused, 50 m accepted, no duplicate rows, 40 concurrent "I'm in" from one IP all land.
 - I4: two attesters → not verified; three distinct co-located → verified; non-co-located → error.

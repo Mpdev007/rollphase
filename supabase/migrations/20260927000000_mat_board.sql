@@ -2,9 +2,8 @@
 -- Runs on the Supabase free plan. Every table has RLS on. Anonymous users (auth.jwt()->>'is_anonymous' = 'true')
 -- can read everything and write their own rows; nobody can write another user's rows.
 
-create extension if not exists postgis;
-create extension if not exists pg_cron;
-create extension if not exists pg_net;
+create extension if not exists postgis with schema extensions;
+create extension if not exists pg_cron with schema pg_catalog;
 
 -- ---------- profiles: one per auth user (anonymous or not) ----------
 create table if not exists public.profiles (
@@ -81,13 +80,13 @@ create table if not exists public.attestations (
 
 -- ---------- helpers ----------
 create or replace function public.current_uid() returns uuid
-  language sql stable as $$ select auth.uid() $$;
+  language sql stable set search_path = public as $$ select auth.uid() $$;
 
 -- Check in only when the phone is within 150 m of the gym. The caller sends its position once;
 -- the function stores only the fact of a valid check-in.
 create or replace function public.check_in(p_gym_id text, p_lat double precision, p_lng double precision, p_slot_id bigint default null)
 returns public.checkins
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare g public.gyms; c public.checkins;
 begin
   if auth.uid() is null then raise exception 'sign in first'; end if;
@@ -107,7 +106,7 @@ end $$;
 -- Attest a belt: only for someone checked in at the same gym while you were, and never twice for the same person.
 create or replace function public.attest_belt(p_subject uuid, p_belt text)
 returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare my_checkin public.checkins; n int;
 begin
   if auth.uid() is null then raise exception 'sign in first'; end if;
@@ -124,7 +123,7 @@ begin
 end $$;
 
 -- What the board reads: this week's slots with "I'm in" counts and names.
-create or replace view public.board_slots as
+create or replace view public.board_slots with (security_invoker = true) as
   select s.*, g.name as gym_name,
          (select count(*) from public.intents i where i.slot_id = s.id and i.on_date >= current_date) as in_count
   from public.slots s join public.gyms g on g.id = s.gym_id
@@ -133,7 +132,7 @@ create or replace view public.board_slots as
 -- Nyx / travel mode: nearest open mats today.
 create or replace function public.open_mats_near(p_lat double precision, p_lng double precision, p_km double precision default 25)
 returns table (gym_id text, gym_name text, slot_id bigint, start_min smallint, kind text, sport text, in_count bigint, km double precision)
-language sql stable as $$
+language sql stable set search_path = public, extensions as $$
   select g.id, g.name, s.id, s.start_min, s.kind, s.sport,
          (select count(*) from public.intents i where i.slot_id = s.id and i.on_date = current_date),
          st_distance(g.loc, st_setsrid(st_makepoint(p_lng, p_lat), 4326)::geography) / 1000
@@ -180,7 +179,7 @@ select cron.schedule('matboard-keepalive', '0 6 * * *', $$ select count(*) from 
 -- ---------- I5: the app-owned venue cache, searched before any OSM call ----------
 create or replace function public.gyms_near(p_lat double precision, p_lng double precision, p_km double precision default 12)
 returns table (id text, name text, city text, dropin_fee text, km double precision, lat double precision, lng double precision, slot_count bigint)
-language sql stable as $$
+language sql stable set search_path = public, extensions as $$
   select g.id, g.name, g.city, g.dropin_fee,
          st_distance(g.loc, st_setsrid(st_makepoint(p_lng, p_lat), 4326)::geography) / 1000,
          st_y(g.loc::geometry), st_x(g.loc::geometry),
@@ -215,3 +214,28 @@ create table if not exists public.push_subscriptions (
 );
 alter table public.push_subscriptions enable row level security;
 create policy "own subscription" on public.push_subscriptions for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- ---------- grants (the project was created with "automatically expose new tables" OFF) ----------
+-- Anonymous sign-ins get the 'authenticated' role (with is_anonymous = true in the JWT).
+grant usage on schema public to anon, authenticated;
+grant select on public.profiles, public.gyms, public.slots, public.intents, public.checkins,
+                public.attestations, public.venue_reports, public.board_slots to anon, authenticated;
+grant insert, update, delete on public.profiles, public.intents, public.venue_reports, public.push_subscriptions to authenticated;
+grant select on public.push_subscriptions to authenticated;
+grant insert, update on public.gyms, public.slots to authenticated;
+grant usage, select on all sequences in schema public to authenticated;
+grant execute on function public.check_in(text, double precision, double precision, bigint) to authenticated;
+grant execute on function public.attest_belt(uuid, text) to authenticated;
+grant execute on function public.gyms_near(double precision, double precision, double precision) to anon, authenticated;
+grant execute on function public.open_mats_near(double precision, double precision, double precision) to anon, authenticated;
+revoke execute on function public.check_in(text, double precision, double precision, bigint) from anon, public;
+revoke execute on function public.attest_belt(uuid, text) from anon, public;
+
+-- ---------- least privilege (applied live 2026-09-27 after the grant audit) ----------
+revoke truncate, trigger, references on all tables in schema public from anon, authenticated;
+revoke insert, update, delete on all tables in schema public from anon;
+revoke delete on public.gyms, public.slots from authenticated;
+alter default privileges in schema public revoke truncate, trigger, references on tables from anon, authenticated;
+
+-- ---------- realtime: boards update live ----------
+alter publication supabase_realtime add table public.slots, public.intents, public.checkins;

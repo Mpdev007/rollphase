@@ -1,0 +1,7 @@
+{
+  "name": "rollphase-matboard-tests",
+  "private": true,
+  "type": "module",
+  "scripts": { "s3": "node s3-supabase.test.mjs" },
+  "dependencies": { "@supabase/supabase-js": "2.117.2" }
+}
