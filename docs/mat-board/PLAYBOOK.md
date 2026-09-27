@@ -64,11 +64,19 @@ Your work in this step (files: `prototype/supabase-client.js`, one `<script src=
 
 **Hardening that waits for the owner (do not do it):** Supabase recommends a captcha on anonymous sign-ins (Cloudflare Turnstile, free). It needs a Cloudflare account and a dashboard change, so it's the owner's call.
 
-## 4. Seed the first gym (files: `supabase/seed/first_gym.sql`)
+## 4. The first board: ALREADY SEEDED (2026-09-27)
 
-The owner names his gym. Find it in the app's own search (its id is `osm-<type>-<id>` or `nom-<type>-<id>` from places-live.js) and insert one `gyms` row with that id, name, `st_setsrid(st_makepoint(lng, lat), 4326)::geography`, city. Do not invent a schedule: leave `slots` empty. Commit the seed file.
+**Pure Brazilian Jiu Jitsu**, 6017 N Northwest Hwy, Chicago, IL 60631, (773) 413-8211 (the owner's gym). Gym id **`rp-pure-bjj-norwood-park`**.
+- It is **not in OpenStreetMap** (that building is tagged as a toy shop, way 163331058). So it is a RollPhase-native venue: `gyms.source = 'gym-website'`, with `address`, `phone` and `website` columns. Migration `supabase/migrations/20260927010000_native_gyms_and_sources.sql` added those columns plus `slots.source` / `slots.source_url`. Seed: `supabase/seed/first_gym.sql`. Both are applied live.
+- **13 adult mat times** from the gym's own published schedule (https://purebrazilianjiujitsu.com/schedule/, fetched 2026-09-27), each with `source = 'gym-website'` and no `created_by`. **Kids/teen classes are deliberately not on the board** until the owner decides the teen-safety rules.
+- Verified signed-out through the publishable key: `gyms_near(41.991, -87.796, 5)` returns it at 0.03 km with 13 mat times; `board_slots` returns all 13; signed-out writes are refused.
 
-**Check 4:** `gyms_near()` around the gym returns it; opening the app at that location lists it.
+What this means for your steps:
+- **Never write test data to this gym.** Every test that taps "I'm in", checks in or attests uses its own throwaway gym (`qa-gym-<timestamp>`, seeded by user A through the normal RLS path, like `s3-supabase.test.mjs` does) and lists the ids it created in the report for the architect to remove. The harness geolocation for board tests is that qa gym's point, not Pure Brazilian's.
+- A native venue has no OSM record, so `findGym(id)` won't know it until step 6 maps `gyms_near` rows into the app's place shape. In step 6, native rows (`source != 'osm'`) take `address`, `phone` and `website` from the `gyms` row; the venue facts block renders them exactly like OSM facts.
+- On the board, a slot with `source = 'gym-website'` shows **"from the gym's schedule · <date>"** where a member slot shows "confirmed by <name> · <n> days ago". Its **Confirm** link still works: confirming sets `confirmed_by` / `confirmed_at` (the row stays `gym-website`), and the line then reads "confirmed by <name>".
+
+**Check 4:** with the harness geolocation at 41.9908, -87.7958, the Gyms list shows Pure Brazilian Jiu Jitsu (from `gyms_near`), its detail shows the address and phone above, and its board lists the 13 mat times with "from the gym's schedule". Screenshot. No writes to this gym.
 
 ## 5. The board page (files: `prototype/board.js`, `prototype/board.css`, the `#screen-gym-detail` block in `index.html` (lines 174-177 today), one `<link>` and one `<script>` tag)
 
