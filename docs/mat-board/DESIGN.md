@@ -73,3 +73,6 @@ The same rows give the **training passport**: the gyms where you have been confi
 - The QR decodes on a phone camera to the board URL and opens the installed app.
 - With the network off, the board shows the last cached timetable and says so.
 - The free project stays unpaused for 14 days with no human traffic (the cron ping).
+
+## Kids, levels and matching
+Kids and teen class times are public on the board like any timetable; who is coming to them is not (Family Access, `supabase/migrations/20260927020000_kids_classes_counts_only.sql`). Levels for every sport, adult matching and the parent-to-parent, consent-gated **Kids Match** are designed in `LEVELS-AND-MATCH.md`.

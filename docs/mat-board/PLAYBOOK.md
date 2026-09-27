@@ -68,7 +68,8 @@ Your work in this step (files: `prototype/supabase-client.js`, one `<script src=
 
 **Pure Brazilian Jiu Jitsu**, 6017 N Northwest Hwy, Chicago, IL 60631, (773) 413-8211 (the owner's gym). Gym id **`rp-pure-bjj-norwood-park`**.
 - It is **not in OpenStreetMap** (that building is tagged as a toy shop, way 163331058). So it is a RollPhase-native venue: `gyms.source = 'gym-website'`, with `address`, `phone` and `website` columns. Migration `supabase/migrations/20260927010000_native_gyms_and_sources.sql` added those columns plus `slots.source` / `slots.source_url`. Seed: `supabase/seed/first_gym.sql`. Both are applied live.
-- **13 adult mat times** from the gym's own published schedule (https://purebrazilianjiujitsu.com/schedule/, fetched 2026-09-27), each with `source = 'gym-website'` and no `created_by`. **Kids/teen classes are deliberately not on the board** until the owner decides the teen-safety rules.
+- **13 adult mat times** from the gym's own published schedule (https://purebrazilianjiujitsu.com/schedule/, fetched 2026-09-27), each with `source = 'gym-website'` and no `created_by`.
+- **26 kids/teen classes** (21 kids, 5 teens) from the same schedule, `slots.audience = 'kids' | 'teens'` (seed `supabase/seed/first_gym_kids.sql`, applied live). The owner's rule: class **times are public**; **who is coming is not**. See step 11 and `LEVELS-AND-MATCH.md`. Until the corrected Family Access migration is applied (waits on the owner's go), the live database still hides kids/teen rows from everyone except verified families, staff and admins. Build for the corrected rule; step 11 says how to check both.
 - Verified signed-out through the publishable key: `gyms_near(41.991, -87.796, 5)` returns it at 0.03 km with 13 mat times; `board_slots` returns all 13; signed-out writes are refused.
 
 What this means for your steps:
@@ -148,7 +149,23 @@ In `fetchNearby` (places-live.js), before any Overpass/Nominatim call: call `RP.
 
 **Check 10:** a full walk (all five tabs, board, share sheet, settings, about) in the harness: 0 `pageerror`, 0 requests to `127.0.0.1:8877`/`8878`, Partners shows the honest card, the old check-in button is gone, and the smoke test from lane G (if present) passes.
 
-## 11. Report
+## 11. Family Access on the board (files: `prototype/board.js`, `prototype/board.css`, `prototype/family.js`, the Profile "Family" card host only via a `window.Family?.mount()` one-liner in app.js)
+
+The database does the enforcing (`supabase/migrations/20260927020000_kids_classes_counts_only.sql`). The client must never try to show more than the database returns, and never infer a count it didn't get.
+
+1. **Board**: kids/teen slots render in their own "Kids & teens" group under each day, tagged **Kids** / **Teens**, with the note text (it carries the age range, e.g. "ages 4-7"). For those slots:
+   - `in_count` is `null` for everyone except verified families, staff and admins. When it is null, show **no count at all**, not "0". When it is a number, show "<n> kids coming".
+   - Never render names under a kids/teen slot, even for a verified family (the database returns only your own rows).
+   - **Sign up my child** shows only when the viewer has a child (`children` returns rows) **and** the insert succeeds. Pick the child from a list of their initials. Tapping inserts `intents` with `child_id`. On a refusal, show the plain message "Family access for this gym isn't verified yet" and a **Request access** button. Do no optimistic UI.
+   - Edit/Add on a kids/teen slot is hidden unless the viewer is staff at that gym (`gym_staff` returns their row).
+2. **Profile › Family** (`family.js`), shown only on a permanent account. Anonymous users see "Add your email to set up a family" and a link to account upgrade:
+   - Add a child: **first initial (1-2 letters) and age band only** (4-7, 7-12, 13-17). There is no name, birthday or photo field, and there never will be.
+   - Per gym: **Request family access** → `rpc('request_family_verification', {p_gym})`, then the status ("waiting for the gym", "verified by <gym>").
+3. **Staff screen** (the same file, shown only when `gym_staff` has a row for the viewer, or for platform admins): a list of requests at their gym, each with the parent's display name and the children's initials + age bands, and **Verify** / **Decline** → `rpc('verify_family')` / delete of the request. The **Revoke** button on verified families → `rpc('revoke_family')`.
+
+**Check 11 (`s11-family.spec.mjs`, qa gym only, never Pure Brazilian):** the architect seeds a qa gym with one kids slot, a staff user and three permanent qa users, and hands you their credentials in the run environment (never in a file). A signed-out context, an anonymous one and a permanent one without a child each see the kids slot's time but **no count and no Sign up button**. The parent with a child but no verification gets the refusal message and can request access. The staff context sees the request, verifies it, and within 2 s the parent's board shows "0 kids coming" and a working Sign up. After sign-up, the parent sees "1 kids coming"; the other parent (verified, different child) sees 1 but no name. The staff context can't verify its own family (the database's error is shown). `pageerror` 0.
+
+## 12. Report
 
 Write `docs/mat-board/REPORT.md`: per step, what changed (files), the check results with screenshot paths, anything skipped and why, anything you could not verify, the exact supabase-js version served by the CDN, the vendored lean-qr hashes, whether pg_cron worked on free, and a scorecard: % of checks passed (count them), % of steps done. Push `mat-board`. Do not merge. Do not ship.
 
