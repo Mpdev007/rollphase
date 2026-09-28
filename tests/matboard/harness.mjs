@@ -34,7 +34,7 @@ export async function launchBrowser() {
  * Returns { context, page, pageErrors } — pageErrors accumulates every `pageerror` event so a
  * spec can assert 0 at the end.
  */
-export async function openApp(browser, { geo, url = APP_URL, storageState } = {}) {
+export async function openApp(browser, { geo, url = APP_URL, storageState, onPageCreated } = {}) {
   const context = await browser.newContext({
     viewport: { width: 360, height: 740 },
     deviceScaleFactor: 4,
@@ -56,6 +56,9 @@ export async function openApp(browser, { geo, url = APP_URL, storageState } = {}
   const pageErrors = [];
   const page = await context.newPage();
   page.on("pageerror", (err) => pageErrors.push(err));
+  // Fires before navigation, so a caller can attach request/response listeners early enough to
+  // observe the app's own boot-time network calls (they can start within milliseconds of load).
+  if (onPageCreated) await onPageCreated(page);
 
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await acceptBetaGate(page);

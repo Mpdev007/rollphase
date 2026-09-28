@@ -30,7 +30,7 @@ try {
       child.on("exit", (code) => resolve(code ?? 1));
     });
     if (code !== 0) allOk = false;
-    await new Promise((r) => setTimeout(r, 500)); // let the previous spec's browser fully tear down
+    await new Promise((r) => setTimeout(r, 2000)); // let the previous spec's browser(s) fully tear down
   }
 } finally {
   stopServer(server);
