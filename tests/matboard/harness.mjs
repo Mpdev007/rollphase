@@ -82,6 +82,64 @@ export async function acceptBetaGate(page) {
 export const REALTIME_READY_NOTE =
   '"SUBSCRIBED" is not "live" — wait for the postgres_changes system "ok" message before trusting a board as real-time.';
 
+/**
+ * Injects a synthetic venue into state.live.places (the shape places-live.js produces) and opens
+ * its gym-detail screen, the same way a real search result would — without depending on step 6's
+ * OSM-vs-gyms_near work or on any real OSM/Overpass data. Used for every board test so nothing
+ * ever touches Pure Brazilian Jiu Jitsu or needs live geolocation search.
+ */
+export async function openQaGym(page, { id, name, lat, lng, sports = ["bjj"], city = "Austin, TX" } = {}) {
+  await page.evaluate(
+    (g) => {
+      state.live.places.push({
+        id: g.id,
+        name: g.name,
+        lat: g.lat,
+        lng: g.lng,
+        mi: 0.1,
+        sports: g.sports,
+        tags: {},
+        here: {},
+        promo: {},
+        social: {},
+        address: "",
+        city: g.city,
+        phone: "",
+        website: "",
+        open: null,
+        live: true,
+        amenities: [],
+      });
+      openGymDetail(g.id);
+    },
+    { id, name, lat, lng, sports, city }
+  );
+}
+
+/** A fresh id for a throwaway test gym, in the convention the architect's cleanup SQL matches. */
+export function qaGymId(tag = "board") {
+  return `qa-gym-${tag}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+}
+
+/** Waits until the board has finished its first load (empty state, a slot card, or an error). */
+export async function waitForBoard(page, timeout = 8000) {
+  await page
+    .waitForFunction(
+      () => !!document.querySelector("#matBoard .mb-empty, #matBoard .mb-slot, #matBoard .mb-refusal-note"),
+      { timeout }
+    )
+    .catch(() => {});
+}
+
+/**
+ * Waits until the board's realtime channel has reached the "ready" system message (board.js
+ * shows "Live" only then — see step 5.4). Tests interact only after this, same as a real user
+ * would see: it avoids racing a click against the reload the ready message itself triggers.
+ */
+export async function waitForLive(page, timeout = 10000) {
+  await page.waitForFunction(() => document.querySelector("#matBoard .mb-sub")?.textContent?.includes("Live"), { timeout }).catch(() => {});
+}
+
 export function outDir(step) {
   return new URL(`./out/${step}/`, import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 }

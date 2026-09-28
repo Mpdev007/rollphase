@@ -1828,6 +1828,7 @@ function openGymDetail(id, opts = {}) {
     if (sport) addSportToProfile(sport, "—");
     switchTab("profile", { historyMode: "push" });
   });
+  window.MatBoard?.mount(g);
 }
 
 function renderPartners() {
