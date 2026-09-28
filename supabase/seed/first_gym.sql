@@ -3,7 +3,7 @@
 -- RollPhase-native venue. Location = the address geocoded by Nominatim (41.9907870, -87.7958372).
 -- Mat times = ADULT classes from the gym's own published schedule, fetched 2026-09-27:
 --   https://purebrazilianjiujitsu.com/schedule/
--- Kids/toddler/teen classes are deliberately left off until the owner decides the teen-safety rules.
+-- Kids/teen classes are in seed/first_gym_kids.sql (times public; who is coming is not: see the Family Access migration).
 -- Weekday: 0 = Sunday … 6 = Saturday. start_min = minutes after midnight (gym local time).
 
 insert into public.gyms (id, name, loc, city, address, phone, website, source, source_url)

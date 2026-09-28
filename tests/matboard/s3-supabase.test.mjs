@@ -1,9 +1,16 @@
-// Live kill tests for the Mat Board schema on rollphase-prod (publishable key only).
+// Live kill tests for the Mat Board schema (publishable keys only; both are public by design).
+// Runs against rollphase-staging by default. RP_TARGET=prod runs it against the live project: only with the owner's go.
 // Test data uses ids prefixed "qa-" at a neutral Austin point; it is removed afterwards from the SQL editor.
 import { createClient } from "@supabase/supabase-js";
 
-const URL = "https://nllqyfmuzyyrxpqjamgj.supabase.co";
-const KEY = "sb_publishable_AguKOHEW9UCXhJAc2Q-MTw_ySOXFGi9";
+const TARGETS = {
+  staging: ["https://ogvjfogfhodjwzjxsirt.supabase.co", "sb_publishable_U0LN_YBnTEyvsIclmC1_pQ_eGVs-JGK"],
+  prod: ["https://nllqyfmuzyyrxpqjamgj.supabase.co", "sb_publishable_AguKOHEW9UCXhJAc2Q-MTw_ySOXFGi9"],
+};
+const TARGET = process.env.RP_TARGET || "staging";
+if (!TARGETS[TARGET]) throw new Error(`RP_TARGET must be staging or prod, got ${TARGET}`);
+const [URL, KEY] = TARGETS[TARGET];
+console.log(`target: ${TARGET} (${URL})`);
 const GYM = "qa-gym-austin-" + Date.now();
 const LAT = 30.2672, LNG = -97.7431;               // the test gym
 const FAR = { lat: 30.3120, lng: -97.7431 };       // ~5 km north
@@ -104,6 +111,33 @@ let checkA;
   });
   const ms = await got; await B.removeChannel(ch);
   check("realtime delivers A's I'm-in to B within 2 s", ms >= 0 && ms <= 2000, ms === -1 ? "no event in 12 s" : ms === -2 ? "insert failed" : `${ms} ms`); }
+
+// 11. leaving: A un-taps "I'm in" and B hears it. intents is in the realtime publication, so a delete needs a
+// primary key (the replica identity); this proves the surrogate-id key keeps deletes working. Postgres DELETE
+// events can't be filtered, so B listens to the table and matches the deleted row's id.
+{ const today = new Date().toISOString().slice(0, 10);
+  const mine = await A.from("intents").select("id").eq("slot_id", slotId).eq("user_id", idA).eq("on_date", today).single();
+  const rowId = mine.data?.id;
+  check("A's intent has a row id (surrogate key)", Number.isInteger(rowId), mine.error?.message || `id=${rowId}`);
+  let t0 = 0, ch;
+  const got = new Promise((resolve) => {
+    ch = B.channel("qa-leave-" + Date.now())
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "intents" }, (p) => { if (p.old?.id === rowId) resolve(Date.now() - t0); })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await new Promise((r) => setTimeout(r, 1500));
+          t0 = Date.now();
+          const del = await A.from("intents").delete().eq("id", rowId).select();
+          if (del.error || (del.data || []).length !== 1) resolve(del.error ? -2 : -3);
+        }
+      });
+    setTimeout(() => resolve(-1), 12000);
+  });
+  const ms = await got; await B.removeChannel(ch);
+  check("A leaves (delete) and B hears it within 2 s", ms >= 0 && ms <= 2000,
+        ms === -1 ? "no event in 12 s" : ms === -2 ? "delete failed" : ms === -3 ? "delete removed no row" : `${ms} ms`);
+  const v = await anon.from("board_slots").select("in_count").eq("id", slotId).single();
+  check("board count drops after leaving", v.data?.in_count === 1, v.error?.message || `in_count=${v.data?.in_count} (tomorrow's I'm-in remains)`); }
 
 const pass = results.filter((r) => r.ok).length;
 console.log(`\n${pass}/${results.length} passed`);
