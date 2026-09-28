@@ -797,28 +797,40 @@ out center tags 40;`;
       if (error || !rows) return [];
       const ids = rows.map((r) => r.id);
       let sportsByGym = new Map();
+      let detailsByGym = new Map();
       if (ids.length) {
-        const { data: slotRows } = await window.RP.db.from("board_slots").select("gym_id,sport").in("gym_id", ids);
+        const [{ data: slotRows }, { data: gymRows }] = await Promise.all([
+          window.RP.db.from("board_slots").select("gym_id,sport").in("gym_id", ids),
+          // gyms_near's own columns don't include address/phone/website/source — a native venue
+          // (source != 'osm') needs these from the gyms row so the venue facts block can render
+          // them exactly like OSM facts (step 6's own requirement).
+          window.RP.db.from("gyms").select("id,address,phone,website,source").in("id", ids),
+        ]);
         for (const s of slotRows || []) {
           if (!sportsByGym.has(s.gym_id)) sportsByGym.set(s.gym_id, new Set());
           sportsByGym.get(s.gym_id).add(s.sport);
         }
+        for (const g of gymRows || []) detailsByGym.set(g.id, g);
       }
-      return rows.map((r) =>
-        venueShell({
+      return rows.map((r) => {
+        const detail = detailsByGym.get(r.id) || {};
+        return venueShell({
           id: r.id,
-          source: "own",
+          source: detail.source || "own",
           name: r.name,
           city: r.city || "",
+          address: detail.address || "",
+          phone: detail.phone || "",
+          website: detail.website || "",
           dropinFee: r.dropin_fee || null,
           mi: Math.round(r.km * 0.621371 * 10) / 10,
           lat: r.lat,
           lng: r.lng,
           boardSlots: Number(r.slot_count) || 0,
           sports: [...(sportsByGym.get(r.id) || [])],
-          mapsUrl: mapsSearchUrl(r.name, r.city || "", r.lat, r.lng),
-        })
-      );
+          mapsUrl: mapsSearchUrl(r.name, detail.address || r.city || "", r.lat, r.lng),
+        });
+      });
     } catch (e) {
       console.warn("gyms_near failed", e);
       return [];
