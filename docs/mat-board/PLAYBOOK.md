@@ -44,7 +44,7 @@ The Supabase project exists and passed its kill tests. **Do not create another p
 | Auth | Anonymous sign-ins **on**. Auto-expose of new tables **off** (grants are explicit). Automatic RLS **on**. |
 | pg_cron | Works on the free plan: jobs `matboard-prune` and `matboard-keepalive` exist. No GitHub Actions keep-alive needed. |
 | Realtime | `slots`, `intents`, `checkins` are in `supabase_realtime`. |
-| Live test | `tests/matboard/s3-supabase.test.mjs`: **24/24 passed** on prod on 2026-09-27 (realtime 336 ms); now **27/27** on staging with the leave/delete check (realtime 170 ms, delete 455 ms). |
+| Live test | `tests/matboard/s3-supabase.test.mjs`: **24/24 passed** on prod on 2026-09-27 (realtime 336 ms); now **28/28** on staging with the leave/delete check and the feed-ready check (ready 259 ms, realtime 170-662 ms, delete 346-476 ms). |
 | **Staging** | `rollphase-staging`, ref `ogvjfogfhodjwzjxsirt` (same org, Free, East US Ohio), publishable key in the test file. Same schema and seed as prod, anonymous sign-ins on, email confirmation on. **All tests run here by default** (`RP_TARGET=staging`); `RP_TARGET=prod` only with the owner's go. |
 
 **Anything that needs the secret key, a new table, or a dashboard change: stop and write it as a request in your report.** The architect applies schema changes.
@@ -59,7 +59,7 @@ Your work in this step (files: `prototype/supabase-client.js`, one `<script src=
 3. Never put the secret key anywhere. `config.public.js` holds only the URL and the publishable key.
 
 **Check 3:**
-- `cd tests/matboard && npm i && node s3-supabase.test.mjs` prints **27/27 passed** (it targets staging). Paste the output into your report. On a brand-new staging project the first realtime check can miss (cold start); run it again and report both runs.
+- `cd tests/matboard && npm i && node s3-supabase.test.mjs` prints **28/28 passed** (it targets staging). Paste the output into your report.
 - The test leaves its own data behind on staging: one gym whose id starts with `qa-gym-austin-`, its slot, "I'm in" and check-in, and two anonymous users. **List the ids it printed** in your report; the architect removes them. Do not try to delete them yourself: the app roles can't delete gyms, by design.
 - In the harness, the app page loads `supabase-client.js`, `RP.user()` returns a user id, and a second reload returns the **same** id (no second sign-in). Screenshot of the console line.
 
@@ -94,7 +94,7 @@ Replace the inside of `#screen-gym-detail` with a host: keep `#gymBack`, keep `#
    - **Here now**: names from live check-ins (last 3 h), or "Nobody has checked in yet."
    - **I'm here** button: calls `RP.db.rpc('check_in', {p_gym_id, p_lat, p_lng, p_slot_id})` with the phone's position (`getCurrentPosition({enableHighAccuracy:true, timeout:10000, maximumAge:0})`); on the 150 m error show the plain message; on success show "You're here until <time>". No optimistic UI: the button changes only after the row comes back.
    - **Add / Edit mat time** sheet: weekday, start time, duration, sport (from `SPORTS` in data.js), kind, gear chips, note. Writes `slots`. Requires a display name: if the profile has none, ask for it in the same sheet (first name only) and belt (optional), then `RP.ensureProfile`.
-4. **Realtime**: subscribe to `postgres_changes` on `slots`, `intents`, `checkins` filtered by `gym_id` (intents via slot ids), and re-render the changed part. Unsubscribe when the screen leaves.
+4. **Realtime**: subscribe to `postgres_changes` on `slots`, `intents`, `checkins` filtered by `gym_id` (intents via slot ids), and re-render the changed part. Unsubscribe when the screen leaves. **"SUBSCRIBED" is not "live"**: the change feed is ready only when the channel's `system` message `{extension: "postgres_changes", status: "ok"}` arrives (after an idle spell it can come late, and changes before it are not delivered). Show the board as live only after that message, and reload the board data once when it arrives so nothing in the gap is lost. (Measured on staging 2026-09-27: a write right after SUBSCRIBED on a cold project was never delivered; after the ready message, 170-660 ms.)
 5. **Offline**: cache the last rendered board data in `localStorage` under `rollphase.board.<id>`; if a load fails, render it with a line "Showing the board from <time>; you're offline." Writes while offline are refused with a plain message (no queue in this step).
 6. **Share button** is wired in step 7; until then it may be hidden.
 

@@ -93,24 +93,33 @@ let checkA;
   const row = (r.data || []).find((g) => g.id === GYM);
   check("gyms_near finds the gym (<1 km, 1 slot)", !!row && row.km < 1 && Number(row.slot_count) === 1, r.error?.message || JSON.stringify(row)); }
 
+// Realtime readiness: "SUBSCRIBED" means the socket joined the channel; the change feed is ready only when the
+// server sends the system message {extension: "postgres_changes", status: "ok"} ("Subscribed to PostgreSQL").
+// After an idle spell that message can come late, and a write made before it is not delivered live. So every
+// live check writes only after that message, and the time to it is its own check (a cold start shows up there).
+// The board client must do the same: treat the board as live only after this message, and reload once when it arrives.
+const liveChannel = (client, name, spec, onEvent) => new Promise((resolve) => {
+  const t = Date.now(); let ch; let done = false;
+  const finish = (readyMs) => { if (!done) { done = true; resolve({ ch, readyMs }); } };
+  ch = client.channel(name)
+    .on("postgres_changes", spec, onEvent)
+    .on("system", {}, (m) => { if (m?.extension === "postgres_changes" && m?.status === "ok") finish(Date.now() - t); })
+    .subscribe();
+  setTimeout(() => finish(-1), 20000);
+});
+
 // 10. realtime: B hears A's "I'm in" (the 2 s kill test for I1)
 { const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-  let t0 = 0, ch;
-  const got = new Promise((resolve) => {
-    ch = B.channel("qa-intents-" + Date.now())
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "intents", filter: `slot_id=eq.${slotId}` }, () => resolve(Date.now() - t0))
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          await new Promise((r) => setTimeout(r, 1500));
-          t0 = Date.now();
-          const ins = await A.from("intents").insert({ slot_id: slotId, user_id: idA, on_date: tomorrow });
-          if (ins.error) resolve(-2);
-        }
-      });
-    setTimeout(() => resolve(-1), 12000);
-  });
-  const ms = await got; await B.removeChannel(ch);
-  check("realtime delivers A's I'm-in to B within 2 s", ms >= 0 && ms <= 2000, ms === -1 ? "no event in 12 s" : ms === -2 ? "insert failed" : `${ms} ms`); }
+  let t0 = 0, hit;
+  const heard = new Promise((r) => { hit = r; });
+  const { ch, readyMs } = await liveChannel(B, "qa-intents-" + Date.now(),
+    { event: "INSERT", schema: "public", table: "intents", filter: `slot_id=eq.${slotId}` }, () => hit(Date.now() - t0));
+  check("change feed ready after subscribing (within 20 s)", readyMs >= 0, readyMs >= 0 ? `${readyMs} ms` : "no ready message in 20 s");
+  t0 = Date.now();
+  const ins = await A.from("intents").insert({ slot_id: slotId, user_id: idA, on_date: tomorrow });
+  const ms = ins.error ? -2 : await Promise.race([heard, new Promise((r) => setTimeout(() => r(-1), 12000))]);
+  await B.removeChannel(ch);
+  check("realtime delivers A's I'm-in to B within 2 s", ms >= 0 && ms <= 2000, ms === -1 ? "no event in 12 s" : ms === -2 ? `insert failed: ${ins.error.message}` : `${ms} ms`); }
 
 // 11. leaving: A un-taps "I'm in" and B hears it. intents is in the realtime publication, so a delete needs a
 // primary key (the replica identity); this proves the surrogate-id key keeps deletes working. Postgres DELETE
@@ -119,23 +128,16 @@ let checkA;
   const mine = await A.from("intents").select("id").eq("slot_id", slotId).eq("user_id", idA).eq("on_date", today).single();
   const rowId = mine.data?.id;
   check("A's intent has a row id (surrogate key)", Number.isInteger(rowId), mine.error?.message || `id=${rowId}`);
-  let t0 = 0, ch;
-  const got = new Promise((resolve) => {
-    ch = B.channel("qa-leave-" + Date.now())
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "intents" }, (p) => { if (p.old?.id === rowId) resolve(Date.now() - t0); })
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          await new Promise((r) => setTimeout(r, 1500));
-          t0 = Date.now();
-          const del = await A.from("intents").delete().eq("id", rowId).select();
-          if (del.error || (del.data || []).length !== 1) resolve(del.error ? -2 : -3);
-        }
-      });
-    setTimeout(() => resolve(-1), 12000);
-  });
-  const ms = await got; await B.removeChannel(ch);
+  let t0 = 0, hit;
+  const heard = new Promise((r) => { hit = r; });
+  const { ch, readyMs } = await liveChannel(B, "qa-leave-" + Date.now(),
+    { event: "DELETE", schema: "public", table: "intents" }, (p) => { if (p.old?.id === rowId) hit(Date.now() - t0); });
+  t0 = Date.now();
+  const del = readyMs < 0 ? { error: { message: "change feed never ready" } } : await A.from("intents").delete().eq("id", rowId).select();
+  const ms = del.error ? -2 : (del.data || []).length !== 1 ? -3 : await Promise.race([heard, new Promise((r) => setTimeout(() => r(-1), 12000))]);
+  await B.removeChannel(ch);
   check("A leaves (delete) and B hears it within 2 s", ms >= 0 && ms <= 2000,
-        ms === -1 ? "no event in 12 s" : ms === -2 ? "delete failed" : ms === -3 ? "delete removed no row" : `${ms} ms`);
+        ms === -1 ? "no event in 12 s" : ms === -2 ? `delete failed: ${del.error.message}` : ms === -3 ? "delete removed no row" : `${ms} ms`);
   const v = await anon.from("board_slots").select("in_count").eq("id", slotId).single();
   check("board count drops after leaving", v.data?.in_count === 1, v.error?.message || `in_count=${v.data?.in_count} (tomorrow's I'm-in remains)`); }
 
