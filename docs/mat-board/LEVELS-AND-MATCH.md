@@ -16,7 +16,7 @@ Architect's design, 2026-09-27. It builds on the Mat Board (`DESIGN.md`) and Fam
 | Search for kids to train with (Kids Match) | no | **does not exist for them** (no screen, the call is refused) | no | yes, with the gates below |
 | Top kids teams near a city (academy level) | no | no | yes | yes |
 
-The top half is Family Access (written; the corrected version waits on the owner's go to apply). The bottom half is new.
+The top half is Family Access (live since 2026-09-27; proven on staging first). The bottom half is new.
 
 ## 1. Levels: one ladder per sport
 

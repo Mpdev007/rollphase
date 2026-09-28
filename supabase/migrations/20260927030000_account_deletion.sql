@@ -2,7 +2,7 @@
 -- Before this, auth.users could not be deleted for anyone who had added a gym or a slot, confirmed a slot,
 -- added gym staff or verified a family: those columns pointed at auth.users with no delete rule.
 -- Shared rows stay (the timetable belongs to the community); only the author link is cleared.
--- NOT live yet: waits on the owner's go (2026-09-27).
+-- Proven on rollphase-staging; applied live on 2026-09-27 ~21:14 CDT by the owner (SQL editor).
 
 alter table public.gyms drop constraint if exists gyms_created_by_fkey;
 alter table public.gyms add constraint gyms_created_by_fkey

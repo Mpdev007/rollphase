@@ -1,7 +1,7 @@
 -- FAMILY ACCESS: kids and teen class times are public like any gym timetable; who is coming to them is not.
 -- Enforced by row-level security. First version applied live 2026-09-27 (it hid kids/teen class times from
--- non-families). This corrected version (public class times, two kids per class, travel-mode audience) is NOT
--- live yet: it waits on the owner's go. Live state until then = the first version.
+-- non-families). This corrected version (public class times, two kids per class, travel-mode audience) was proven
+-- on rollphase-staging and applied live on 2026-09-27 ~21:14 CDT by the owner (SQL editor).
 --
 -- Rules (owner, 2026-09-27):
 --   * Anyone can see a gym's kids/teen class times (a parent may be looking for a place to bring a kid).
