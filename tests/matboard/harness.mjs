@@ -14,6 +14,15 @@ const BLOCKED_PATTERNS = [
   "**127.0.0.1:8878**",
 ];
 
+// Rule 11: tests write to rollphase-staging, never prod. config.public.js (committed, ships to
+// real users) points at prod, so every test context intercepts that one request and serves the
+// staging URL/key instead. The app under test never touches prod through this harness.
+const STAGING_CONFIG = `window.ROLLPHASE_PUBLIC = {
+  supabaseUrl: "https://ogvjfogfhodjwzjxsirt.supabase.co",
+  supabaseKey: "sb_publishable_U0LN_YBnTEyvsIclmC1_pQ_eGVs-JGK",
+};
+`;
+
 /** Launches one browser for the whole run. Call `await browser.close()` when done. */
 export async function launchBrowser() {
   return chromium.launch({ channel: "chrome", headless: true });
@@ -40,6 +49,9 @@ export async function openApp(browser, { geo, url = APP_URL, storageState } = {}
   for (const pattern of BLOCKED_PATTERNS) {
     await context.route(pattern, (route) => route.abort());
   }
+  await context.route("**/config.public.js", (route) =>
+    route.fulfill({ status: 200, contentType: "application/javascript", body: STAGING_CONFIG })
+  );
 
   const pageErrors = [];
   const page = await context.newPage();
