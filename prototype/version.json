@@ -1,6 +1,6 @@
 {
-  "version": "0.6.6",
-  "buildId": "20260924-1309-88d9bc5",
-  "builtAt": "2026-09-24T13:09:06.770Z",
-  "message": "Header no longer covers the name"
+  "version": "0.7.0",
+  "buildId": "20260928-1553-1cd4dd4",
+  "builtAt": "2026-09-28T15:53:15.229Z",
+  "message": "Mat Board: live gym timetable, presence, belt handshake, family access (beta)"
 }
