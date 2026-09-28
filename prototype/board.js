@@ -21,7 +21,7 @@ const MatBoard = (() => {
   let observer = null;
   let myId = null;
   let myProfile = null;
-  let data = { slots: [], intentsBySlot: new Map(), childrenByIntentId: new Map(), profilesById: new Map(), checkins: [], dropinFee: null };
+  let data = { slots: [], intentsBySlot: new Map(), childrenByIntentId: new Map(), profilesById: new Map(), checkins: [], dropinFee: null, myChildren: [], isStaffHere: false };
   let mountToken = 0; // bumped on every mount()/teardown() so stale async work is dropped
   let loadToken = 0; // bumped on every loadAndRender() call so an older, slower fetch never
   // clobbers a newer one's result — a write and its own realtime echo can both trigger a load,
@@ -173,11 +173,13 @@ const MatBoard = (() => {
       return;
     }
     try {
-      const [slotsRes, checkinsRes, gymRes] = await Promise.all([
+      const [slotsRes, checkinsRes, gymRes, childrenRes, staffRes] = await Promise.all([
         RP.db.from("board_slots").select("*").eq("gym_id", gym.id).order("weekday").order("start_min"),
         RP.db.from("checkins").select("*").eq("gym_id", gym.id).gt("expires_at", new Date().toISOString()),
         // mount() already upserted this row (or it pre-existed), so it's safe to expect exactly one.
         RP.db.from("gyms").select("dropin_fee").eq("id", gym.id).maybeSingle(),
+        myId ? RP.db.from("children").select("*").eq("guardian_id", myId) : Promise.resolve({ data: [] }),
+        myId ? RP.db.from("gym_staff").select("role").eq("gym_id", gym.id).eq("user_id", myId).maybeSingle() : Promise.resolve({ data: null }),
       ]);
       if (token !== mountToken || myLoad !== loadToken) return;
       if (slotsRes.error) throw slotsRes.error;
@@ -185,15 +187,17 @@ const MatBoard = (() => {
       const slots = (slotsRes.data || []).filter((s) => !s.removed_at);
       const occurrences = weekOccurrences();
       const occByWeekday = new Map(occurrences.map((o) => [o.weekday, o]));
-      const adultSlotIds = slots.filter((s) => s.audience === "adult").map((s) => s.id);
+      // Every slot, not just adult ones: RLS on intents does the split for us (adult slots return
+      // everyone's rows; kids/teens slots return only the caller's own — never another family's).
+      const slotIds = slots.map((s) => s.id);
 
       let intents = [];
-      if (adultSlotIds.length) {
-        const onDates = [...new Set(slots.filter((s) => s.audience === "adult").map((s) => occByWeekday.get(s.weekday)?.iso).filter(Boolean))];
+      if (slotIds.length) {
+        const onDates = [...new Set(slots.map((s) => occByWeekday.get(s.weekday)?.iso).filter(Boolean))];
         const { data: rows, error } = await RP.db
           .from("intents")
           .select("*")
-          .in("slot_id", adultSlotIds)
+          .in("slot_id", slotIds)
           .in("on_date", onDates);
         if (!error) intents = rows || [];
       }
@@ -223,8 +227,10 @@ const MatBoard = (() => {
         profilesById: new Map(profiles.map((p) => [p.id, p])),
         checkins: checkinsRes.data || [],
         dropinFee: gymRes?.data?.dropin_fee || null,
+        myChildren: childrenRes.data || [],
+        isStaffHere: !!staffRes.data,
       };
-      saveCache({ slots, intents, profiles, checkins: data.checkins, dropinFee: data.dropinFee });
+      saveCache({ slots, intents, profiles, checkins: data.checkins, dropinFee: data.dropinFee, myChildren: data.myChildren, isStaffHere: data.isStaffHere });
       render({ offline: false });
     } catch (e) {
       if (myLoad !== loadToken) return;
@@ -239,13 +245,21 @@ const MatBoard = (() => {
       host.innerHTML = `<div class="mat-board"><p class="mb-refusal-note">${escapeHtml(message)}</p></div>`;
       return;
     }
-    const { slots, intents, profiles, checkins, dropinFee } = cached.payload;
+    const { slots, intents, profiles, checkins, dropinFee, myChildren, isStaffHere } = cached.payload;
     const intentsBySlot = new Map();
     for (const i of intents) {
       if (!intentsBySlot.has(i.slot_id)) intentsBySlot.set(i.slot_id, []);
       intentsBySlot.get(i.slot_id).push(i);
     }
-    data = { slots, intentsBySlot, profilesById: new Map(profiles.map((p) => [p.id, p])), checkins, dropinFee: dropinFee || null };
+    data = {
+      slots,
+      intentsBySlot,
+      profilesById: new Map(profiles.map((p) => [p.id, p])),
+      checkins,
+      dropinFee: dropinFee || null,
+      myChildren: myChildren || [],
+      isStaffHere: !!isStaffHere,
+    };
     render({ offline: true, cachedAt: cached.at });
   }
 
@@ -414,7 +428,7 @@ const MatBoard = (() => {
         : `<span>unconfirmed</span>`;
     }
     const stale = isStale(slot.confirmed_at);
-    const canEditKids = slot.audience === "adult"; // staff-only editing for kids/teens lands in step 11
+    const canEditKids = slot.audience === "adult" || data.isStaffHere;
     const actions = canEditKids
       ? `<span><a href="#" data-action="confirm" data-slot="${slot.id}">Confirm</a><a href="#" data-action="edit" data-slot="${slot.id}">Edit</a></span>`
       : "";
@@ -433,11 +447,32 @@ const MatBoard = (() => {
         ${intents.length ? `<div class="mb-imin-names">${names}</div>` : `<div class="mb-imin-names">nobody's in yet</div>`}
       </div>`;
     } else {
-      // Family Access: in_count is null unless the viewer is a verified family/staff/admin (step 11).
-      inSection =
+      // Family Access: in_count is null unless the viewer is a verified family/staff/admin. Names
+      // are never shown here — the database only ever returns the caller's own intents for a
+      // kids/teens slot, so there is nothing to name even for a verified family.
+      const countLine =
         slot.in_count == null
           ? "" // no count at all shown to a non-family, per the owner's rule
           : `<div class="mb-count-hidden">${slot.in_count} kids coming</div>`;
+      // Whatever intents I see here are my own (RLS), so this is exactly "which of my kids are
+      // already signed up for this occurrence" — never another family's.
+      const myIntents = (data.intentsBySlot.get(slot.id) || []).filter((i) => i.child_id != null);
+      const signedUpIds = new Set(myIntents.map((i) => i.child_id));
+      const signedUpLine = myIntents.length
+        ? `<div class="mb-family-mine">Signed up: ${myIntents
+            .map((i) => escapeHtml(data.myChildren.find((c) => c.id === i.child_id)?.initial || "your child"))
+            .join(", ")}</div>`
+        : "";
+      const availableChildren = data.myChildren.filter((c) => !signedUpIds.has(c.id));
+      const signupButtons = availableChildren.length
+        ? `<div class="mb-family-signup">${availableChildren
+            .map(
+              (c) =>
+                `<button type="button" class="btn-match mb-signup-btn" data-action="signup-child" data-slot="${slot.id}" data-date="${occ.iso}" data-child="${c.id}">Sign up ${escapeHtml(c.initial)}</button>`
+            )
+            .join("")}</div>`
+        : "";
+      inSection = `${countLine}${signedUpLine}${signupButtons}<div class="mb-family-msg" data-family-msg="${slot.id}"></div>`;
     }
 
     return `<div class="mb-slot" data-slot-card="${slot.id}">
@@ -485,10 +520,37 @@ const MatBoard = (() => {
     host.querySelectorAll('[data-action="attest"]').forEach((el) =>
       el.addEventListener("click", () => onAttest(el.dataset.subject, el.dataset.belt))
     );
+    host.querySelectorAll('[data-action="signup-child"]').forEach((el) =>
+      el.addEventListener("click", () => onSignupChild(Number(el.dataset.slot), Number(el.dataset.child), el.dataset.date))
+    );
     host.querySelector('[data-action="edit-fee"]')?.addEventListener("click", (e) => {
       e.preventDefault();
       onEditFee();
     });
+  }
+
+  async function onSignupChild(slotId, childId, dateIso) {
+    if (!(await ensureSignedIn())) return;
+    const { error } = await RP.db.from("intents").insert({ slot_id: slotId, user_id: myId, on_date: dateIso, child_id: childId });
+    // No optimistic UI: only a real, confirmed result changes what's shown.
+    const msgEl = host.querySelector(`[data-family-msg="${slotId}"]`);
+    if (error) {
+      window.RollToast?.show?.("Family access for this gym isn't verified yet");
+      if (msgEl) {
+        msgEl.innerHTML = `<p class="mb-attest-msg err">Family access for this gym isn't verified yet</p>
+          <button type="button" class="btn-sec mb-request-family-btn" data-action="request-family">Request access</button>`;
+        msgEl.querySelector('[data-action="request-family"]')?.addEventListener("click", onRequestFamilyAccess);
+      }
+      return;
+    }
+    window.RollToast?.show?.("Signed up.");
+    loadAndRender(mountToken);
+  }
+
+  async function onRequestFamilyAccess() {
+    if (!(await ensureSignedIn())) return;
+    const { error } = await RP.db.rpc("request_family_verification", { p_gym: gym.id });
+    window.RollToast?.show?.(error ? error.message : "Request sent — waiting for the gym.");
   }
 
   function onEditFee() {

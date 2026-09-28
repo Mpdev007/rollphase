@@ -239,6 +239,23 @@
   width: 100%;
   padding: 10px;
 }
+.mb-family-mine {
+  font-size: 0.76rem;
+  color: var(--muted);
+  margin-top: 7px;
+}
+.mb-family-signup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 7px;
+}
+.mb-family-msg:empty { display: none; }
+.mb-request-family-btn {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px;
+}
 
 .mb-empty {
   background: var(--bg-card);

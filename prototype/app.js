@@ -2690,6 +2690,7 @@ function renderProfile() {
         renderProfile();
       });
     });
+    window.Family?.mount(placesHost.closest(".card"));
   }
 
   // Main profile: summary only. Full color studio only in Settings.
