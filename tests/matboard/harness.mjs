@@ -1,0 +1,75 @@
+// Shared Playwright harness for the Mat Board specs.
+// Real Chrome, phone size (360x740, DPR 4, touch, Android UA), a fixed geolocation, the beta gate
+// accepted, and the laptop-only endpoints route-blocked so tests never depend on them.
+import { chromium } from "playwright";
+
+export const APP_URL = "http://127.0.0.1:8880/";
+export const ANDROID_UA =
+  "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36";
+
+const BLOCKED_PATTERNS = [
+  "**/formsubmit.co/**",
+  "**/enrich",
+  "**127.0.0.1:8877**",
+  "**127.0.0.1:8878**",
+];
+
+/** Launches one browser for the whole run. Call `await browser.close()` when done. */
+export async function launchBrowser() {
+  return chromium.launch({ channel: "chrome", headless: true });
+}
+
+/**
+ * Opens a fresh phone-size context + page, blocks the laptop-only endpoints, grants geolocation
+ * to `geo` ({lat, lng}), navigates to the app and gets past the beta gate.
+ * Returns { context, page, pageErrors } — pageErrors accumulates every `pageerror` event so a
+ * spec can assert 0 at the end.
+ */
+export async function openApp(browser, { geo, url = APP_URL, storageState } = {}) {
+  const context = await browser.newContext({
+    viewport: { width: 360, height: 740 },
+    deviceScaleFactor: 4,
+    isMobile: true,
+    hasTouch: true,
+    userAgent: ANDROID_UA,
+    geolocation: geo || { latitude: 30.2672, longitude: -97.7431 },
+    permissions: ["geolocation"],
+    storageState,
+  });
+
+  for (const pattern of BLOCKED_PATTERNS) {
+    await context.route(pattern, (route) => route.abort());
+  }
+
+  const pageErrors = [];
+  const page = await context.newPage();
+  page.on("pageerror", (err) => pageErrors.push(err));
+
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  await acceptBetaGate(page);
+
+  return { context, page, pageErrors };
+}
+
+/** Accepts the closed-beta disclaimer gate if it's showing. Idempotent. */
+export async function acceptBetaGate(page) {
+  const agree = page.locator("#betaAgree");
+  try {
+    await agree.waitFor({ state: "attached", timeout: 5000 });
+  } catch {
+    return; // gate wasn't rendered (already acked via storageState, or missing) — fine
+  }
+  if (!(await page.locator("#betaGate").count())) return;
+  await agree.check();
+  await page.locator("#betaEnter").click();
+  await page.locator("#betaGate").waitFor({ state: "detached", timeout: 5000 }).catch(() => {});
+}
+
+/** True once the change feed's system "ok" message would have landed for a channel this old.
+ * Not used directly by specs (the client-side rule is in board.js); kept here for reference. */
+export const REALTIME_READY_NOTE =
+  '"SUBSCRIBED" is not "live" — wait for the postgres_changes system "ok" message before trusting a board as real-time.';
+
+export function outDir(step) {
+  return new URL(`./out/${step}/`, import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+}
