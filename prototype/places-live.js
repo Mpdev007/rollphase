@@ -784,6 +784,42 @@ out center tags 40;`;
   }
 
   const round3 = (n) => Math.round(n * 1000) / 1000;
+  const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  function fmtSlotClock(startMin) {
+    const h24 = Math.floor(startMin / 60);
+    const m = startMin % 60;
+    const ampm = h24 >= 12 ? "PM" : "AM";
+    const h12 = h24 % 12 || 12;
+    return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+  }
+
+  /** Minutes from now until this week's (or next week's) occurrence of a weekday+start_min slot. */
+  function minutesUntilOccurrence(weekday, startMin, now) {
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    let dayDelta = weekday - now.getDay();
+    if (dayDelta < 0 || (dayDelta === 0 && startMin < nowMin)) dayDelta += 7;
+    return dayDelta * 1440 + (startMin - nowMin);
+  }
+
+  /**
+   * Step 9: "Next open mat: <weekday time>" (plus gear and the drop-in fee, when set) for a card
+   * with boardSlots > 0 — folded into venueShell's existing `next[sport]` field so app.js's
+   * (unchanged) gymCardHTML renders it exactly like any other next-class line.
+   */
+  function nextOpenMatLine(slotRows, sport, dropinFee, now) {
+    const upcoming = slotRows
+      .filter((s) => s.sport === sport && s.audience === "adult" && !s.removed_at)
+      .map((s) => ({ ...s, inMin: minutesUntilOccurrence(s.weekday, s.start_min, now) }))
+      .sort((a, b) => a.inMin - b.inMin);
+    if (!upcoming.length) return null;
+    const soonest = upcoming[0];
+    const gear = (soonest.gear || []).join(", ");
+    const bits = [`Next open mat: ${WEEKDAY_SHORT[soonest.weekday]} ${fmtSlotClock(soonest.start_min)}`];
+    if (gear) bits.push(gear);
+    if (dropinFee) bits.push(dropinFee);
+    return bits.join(" · ");
+  }
 
   /** RollPhase's own gyms, from Supabase — the venue any member has ever opened or added. */
   async function fetchOwnVenues({ lat, lng, radiusM }) {
@@ -797,10 +833,11 @@ out center tags 40;`;
       if (error || !rows) return [];
       const ids = rows.map((r) => r.id);
       let sportsByGym = new Map();
+      let slotsByGym = new Map();
       let detailsByGym = new Map();
       if (ids.length) {
         const [{ data: slotRows }, { data: gymRows }] = await Promise.all([
-          window.RP.db.from("board_slots").select("gym_id,sport").in("gym_id", ids),
+          window.RP.db.from("board_slots").select("gym_id,sport,weekday,start_min,gear,audience,removed_at").in("gym_id", ids),
           // gyms_near's own columns don't include address/phone/website/source — a native venue
           // (source != 'osm') needs these from the gyms row so the venue facts block can render
           // them exactly like OSM facts (step 6's own requirement).
@@ -809,11 +846,23 @@ out center tags 40;`;
         for (const s of slotRows || []) {
           if (!sportsByGym.has(s.gym_id)) sportsByGym.set(s.gym_id, new Set());
           sportsByGym.get(s.gym_id).add(s.sport);
+          if (!slotsByGym.has(s.gym_id)) slotsByGym.set(s.gym_id, []);
+          slotsByGym.get(s.gym_id).push(s);
         }
         for (const g of gymRows || []) detailsByGym.set(g.id, g);
       }
+      const now = new Date();
       return rows.map((r) => {
         const detail = detailsByGym.get(r.id) || {};
+        const sports = [...(sportsByGym.get(r.id) || [])];
+        const slotCount = Number(r.slot_count) || 0;
+        const next = {};
+        if (slotCount > 0) {
+          for (const sport of sports) {
+            const line = nextOpenMatLine(slotsByGym.get(r.id) || [], sport, r.dropin_fee, now);
+            if (line) next[sport] = line;
+          }
+        }
         return venueShell({
           id: r.id,
           source: detail.source || "own",
@@ -826,8 +875,9 @@ out center tags 40;`;
           mi: Math.round(r.km * 0.621371 * 10) / 10,
           lat: r.lat,
           lng: r.lng,
-          boardSlots: Number(r.slot_count) || 0,
-          sports: [...(sportsByGym.get(r.id) || [])],
+          boardSlots: slotCount,
+          sports,
+          next,
           mapsUrl: mapsSearchUrl(r.name, detail.address || r.city || "", r.lat, r.lng),
         });
       });

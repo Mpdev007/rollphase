@@ -21,7 +21,7 @@ const MatBoard = (() => {
   let observer = null;
   let myId = null;
   let myProfile = null;
-  let data = { slots: [], intentsBySlot: new Map(), childrenByIntentId: new Map(), profilesById: new Map(), checkins: [] };
+  let data = { slots: [], intentsBySlot: new Map(), childrenByIntentId: new Map(), profilesById: new Map(), checkins: [], dropinFee: null };
   let mountToken = 0; // bumped on every mount()/teardown() so stale async work is dropped
   let loadToken = 0; // bumped on every loadAndRender() call so an older, slower fetch never
   // clobbers a newer one's result — a write and its own realtime echo can both trigger a load,
@@ -173,9 +173,11 @@ const MatBoard = (() => {
       return;
     }
     try {
-      const [slotsRes, checkinsRes] = await Promise.all([
+      const [slotsRes, checkinsRes, gymRes] = await Promise.all([
         RP.db.from("board_slots").select("*").eq("gym_id", gym.id).order("weekday").order("start_min"),
         RP.db.from("checkins").select("*").eq("gym_id", gym.id).gt("expires_at", new Date().toISOString()),
+        // mount() already upserted this row (or it pre-existed), so it's safe to expect exactly one.
+        RP.db.from("gyms").select("dropin_fee").eq("id", gym.id).maybeSingle(),
       ]);
       if (token !== mountToken || myLoad !== loadToken) return;
       if (slotsRes.error) throw slotsRes.error;
@@ -220,8 +222,9 @@ const MatBoard = (() => {
         intentsBySlot,
         profilesById: new Map(profiles.map((p) => [p.id, p])),
         checkins: checkinsRes.data || [],
+        dropinFee: gymRes?.data?.dropin_fee || null,
       };
-      saveCache({ slots, intents, profiles, checkins: data.checkins });
+      saveCache({ slots, intents, profiles, checkins: data.checkins, dropinFee: data.dropinFee });
       render({ offline: false });
     } catch (e) {
       if (myLoad !== loadToken) return;
@@ -236,13 +239,13 @@ const MatBoard = (() => {
       host.innerHTML = `<div class="mat-board"><p class="mb-refusal-note">${escapeHtml(message)}</p></div>`;
       return;
     }
-    const { slots, intents, profiles, checkins } = cached.payload;
+    const { slots, intents, profiles, checkins, dropinFee } = cached.payload;
     const intentsBySlot = new Map();
     for (const i of intents) {
       if (!intentsBySlot.has(i.slot_id)) intentsBySlot.set(i.slot_id, []);
       intentsBySlot.get(i.slot_id).push(i);
     }
-    data = { slots, intentsBySlot, profilesById: new Map(profiles.map((p) => [p.id, p])), checkins };
+    data = { slots, intentsBySlot, profilesById: new Map(profiles.map((p) => [p.id, p])), checkins, dropinFee: dropinFee || null };
     render({ offline: true, cachedAt: cached.at });
   }
 
@@ -308,6 +311,10 @@ const MatBoard = (() => {
       <div><div class="mb-title">This week at ${escapeHtml(gym.name)}</div>
       <div class="mb-sub">${liveReady ? "Live" : "Loading live updates…"}</div></div>
       <button type="button" class="btn-sec" id="mbShare" style="padding:9px 14px">Share</button>
+    </div>`);
+    html.push(`<div class="mb-fee-row">
+      <span>${data.dropinFee ? `Drop-in: ${escapeHtml(data.dropinFee)}` : "Drop-in fee not set"}</span>
+      <a href="#" data-action="edit-fee">${data.dropinFee ? "Edit" : "Set fee"}</a>
     </div>`);
 
     if (offline) {
@@ -478,6 +485,28 @@ const MatBoard = (() => {
     host.querySelectorAll('[data-action="attest"]').forEach((el) =>
       el.addEventListener("click", () => onAttest(el.dataset.subject, el.dataset.belt))
     );
+    host.querySelector('[data-action="edit-fee"]')?.addEventListener("click", (e) => {
+      e.preventDefault();
+      onEditFee();
+    });
+  }
+
+  function onEditFee() {
+    openMiniSheet({
+      title: "Drop-in fee",
+      fields: [{ key: "fee", label: "Drop-in fee", placeholder: "$20 / free with a gi" }],
+      onSave: async (vals) => {
+        if (!(await ensureSignedIn())) return;
+        const fee = vals.fee.trim() || null;
+        const { error } = await RP.db.from("gyms").update({ dropin_fee: fee }).eq("id", gym.id);
+        if (error) {
+          window.RollToast?.show?.(error.message);
+          return;
+        }
+        window.RollToast?.show?.("Drop-in fee updated.");
+        loadAndRender(mountToken);
+      },
+    });
   }
 
   async function onAttest(subjectId, belt) {
@@ -672,7 +701,9 @@ const MatBoard = (() => {
         ${Object.entries(KIND_LABELS).map(([k, v]) => `<option value="${k}" ${existing?.kind === k ? "selected" : ""}>${v}</option>`).join("")}
       </select></label>
       <label><span>Gear</span><div class="mb-gear-row" id="mbfGear">
-        ${GEAR_OPTIONS.map((g) => `<button type="button" class="mb-gear-chip${(existing?.gear || []).includes(g) ? " selected" : ""}" data-gear="${g}">${g}</button>`).join("")}
+        ${gearOptionsFor(existing?.sport || sports[0]?.id)
+          .map((g) => `<button type="button" class="mb-gear-chip${(existing?.gear || []).includes(g) ? " selected" : ""}" data-gear="${g}">${g}</button>`)
+          .join("")}
       </div></label>
       <label><span>Note (optional)</span><input type="text" id="mbfNote" maxlength="140" value="${escapeHtml(existing?.note || "")}" /></label>
       <div id="mbfNameFields" hidden>
@@ -692,6 +723,16 @@ const MatBoard = (() => {
     overlay.querySelectorAll("[data-gear]").forEach((chip) =>
       chip.addEventListener("click", () => chip.classList.toggle("selected"))
     );
+    overlay.querySelector("#mbfSport").addEventListener("change", (e) => {
+      const gearHost = overlay.querySelector("#mbfGear");
+      const wasSelected = new Set([...gearHost.querySelectorAll(".selected")].map((el) => el.dataset.gear));
+      gearHost.innerHTML = gearOptionsFor(e.target.value)
+        .map((g) => `<button type="button" class="mb-gear-chip${wasSelected.has(g) ? " selected" : ""}" data-gear="${g}">${g}</button>`)
+        .join("");
+      gearHost.querySelectorAll("[data-gear]").forEach((chip) =>
+        chip.addEventListener("click", () => chip.classList.toggle("selected"))
+      );
+    });
     const close = () => overlay.remove();
     overlay.addEventListener("click", (e) => {
       if (e.target === overlay) close();
@@ -745,6 +786,11 @@ const MatBoard = (() => {
       close();
       loadAndRender(mountToken);
     });
+  }
+
+  function gearOptionsFor(sportId) {
+    const sport = typeof SPORTS !== "undefined" ? SPORTS.find((s) => s.id === sportId) : null;
+    return sport?.matGear || GEAR_OPTIONS;
   }
 
   function minToHHMM(min) {

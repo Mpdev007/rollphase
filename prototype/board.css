@@ -18,6 +18,19 @@
   color: var(--muted);
   margin-top: 2px;
 }
+.mb-fee-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.76rem;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.mb-fee-row a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 700;
+}
 .mb-offline-note {
   background: rgba(245, 165, 36, 0.12);
   border: 1px solid rgba(245, 165, 36, 0.3);
