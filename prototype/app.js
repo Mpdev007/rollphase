@@ -2687,6 +2687,7 @@ function renderProfile() {
       btn.addEventListener("click", () => setPrimarySport(btn.dataset.primarySport));
     });
     $("#profileAddSport")?.addEventListener("click", () => openSportPicker({ addMode: true }));
+    window.Passport?.mount(sportsHost.closest(".card"));
   }
 
   const placesHost = $("#myPlaces");
@@ -2777,7 +2778,7 @@ function renderProfile() {
         ([key, label]) => `
       <div class="social-field">
         <label>${label}</label>
-        <input type="text" data-social="${key}" value="${escapeHtml(p.social[key] || "")}" placeholder="@handle or URL" />
+        <input type="text" data-social="${key}" value="${escapeHtml(state.profile.social[key] || "")}" placeholder="@handle or URL" />
       </div>`
       )
       .join("");
@@ -2790,8 +2791,8 @@ function renderProfile() {
 
   const followHost = $("#followingList");
   if (followHost) {
-    followHost.innerHTML = p.following.length
-      ? p.following
+    followHost.innerHTML = state.profile.following.length
+      ? state.profile.following
           .map(
             (f, i) => `
       <span class="follow-chip">

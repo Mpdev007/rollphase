@@ -77,6 +77,25 @@
   font-size: 0.62rem;
   font-weight: 800;
 }
+.mb-attest-btn {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  margin-top: -2px;
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--accent);
+  border-radius: 10px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mb-attest-msg {
+  font-size: 0.76rem;
+  margin: 8px 0;
+}
+.mb-attest-msg.ok { color: var(--open); }
+.mb-attest-msg.err { color: var(--live); }
 .mb-checkin-btn {
   width: 100%;
   padding: 12px;

@@ -29,3 +29,7 @@ prototype/.enrich-cache.json
 prototype/__pycache__/
 **/__pycache__/
 
+# Cached anonymous-auth storageState for repeated local test runs (avoids re-hitting Supabase's
+# 30/hour/IP anonymous sign-in limit every time a spec is re-run during debugging).
+tests/matboard/.qa-sessions/
+

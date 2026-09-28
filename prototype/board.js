@@ -16,6 +16,7 @@ const MatBoard = (() => {
   let host = null;
   let gym = null;
   let channel = null;
+  let profilePoll = null;
   let liveReady = false;
   let observer = null;
   let myId = null;
@@ -120,6 +121,10 @@ const MatBoard = (() => {
       }
     }
     channel = null;
+    if (profilePoll) {
+      clearInterval(profilePoll);
+      profilePoll = null;
+    }
     liveReady = false;
     if (observer) {
       observer.disconnect();
@@ -280,6 +285,14 @@ const MatBoard = (() => {
         }
       })
       .subscribe();
+
+    // `profiles` (and `attestations`) are deliberately not in supabase_realtime (PLAYBOOK.md: only
+    // slots/intents/checkins are) — a belt attestation from someone else won't otherwise reach an
+    // already-open board, since it touches none of those three tables. A light poll while the
+    // board is mounted covers that gap without changing the realtime publication.
+    profilePoll = setInterval(() => {
+      if (token === mountToken && document.visibilityState === "visible") loadAndRender(token);
+    }, 20000);
   }
 
   /* ---------------- rendering ---------------- */
@@ -336,9 +349,16 @@ const MatBoard = (() => {
       .filter((r) => r.p);
     const list = rows.length
       ? `<div class="mb-here-list">${rows
-          .map(
-            (r) => `<div class="mb-here-chip"><span class="av">${escapeHtml(initialsOf(r.p.display_name))}</span>${escapeHtml(r.p.display_name)}</div>`
-          )
+          .map((r) => {
+            const belt = r.p.belt
+              ? ` (${escapeHtml(r.p.belt)}${r.p.belt_verified ? ` <span class="verified">✓ verified</span>` : ", self-declared"})`
+              : "";
+            const canAttest = r.p.id !== myId && r.p.belt;
+            const attestBtn = canAttest
+              ? `<button type="button" class="mb-attest-btn" data-action="attest" data-subject="${r.p.id}" data-belt="${escapeHtml(r.p.belt)}">Rolled with ${escapeHtml(r.p.display_name)} · confirm ${escapeHtml(r.p.belt)}</button>`
+              : "";
+            return `<div class="mb-here-chip"><span class="av">${escapeHtml(initialsOf(r.p.display_name))}</span>${escapeHtml(r.p.display_name)}${belt}</div>${attestBtn}`;
+          })
           .join("")}</div>`
       : `<p class="mb-sub" style="margin-bottom:10px">Nobody has checked in yet.</p>`;
     const myCheckin = myId ? data.checkins.find((c) => c.user_id === myId) : null;
@@ -350,6 +370,7 @@ const MatBoard = (() => {
       ${list}
       <button type="button" class="btn-match mb-checkin-btn" data-action="checkin">I'm here</button>
       <div id="mbCheckinMsg">${status}</div>
+      <div id="mbAttestMsg"></div>
     </div>`;
   }
 
@@ -454,6 +475,26 @@ const MatBoard = (() => {
     host.querySelectorAll('[data-action="imin"]').forEach((el) =>
       el.addEventListener("click", () => onImin(Number(el.dataset.slot), el.dataset.date))
     );
+    host.querySelectorAll('[data-action="attest"]').forEach((el) =>
+      el.addEventListener("click", () => onAttest(el.dataset.subject, el.dataset.belt))
+    );
+  }
+
+  async function onAttest(subjectId, belt) {
+    if (!(await ensureSignedIn())) return;
+    const { error } = await RP.db.rpc("attest_belt", { p_subject: subjectId, p_belt: belt });
+    // Re-query rather than capturing #mbAttestMsg up front: a realtime re-render can land during
+    // either await above and replace host.innerHTML, detaching an earlier reference so writes to
+    // it go nowhere the user can see. Also toast either way — belt-and-suspenders against a
+    // re-render landing between this query and the read.
+    const msgEl = host.querySelector("#mbAttestMsg");
+    if (error) {
+      if (msgEl) msgEl.innerHTML = `<div class="mb-attest-msg err">${escapeHtml(error.message)}</div>`;
+      window.RollToast?.show?.(error.message);
+      return;
+    }
+    window.RollToast?.show?.("Confirmed.");
+    loadAndRender(mountToken);
   }
 
   async function onCheckin() {
@@ -520,6 +561,7 @@ const MatBoard = (() => {
 
   async function ensureSignedIn() {
     if (!myId) myId = (await RP.user())?.id || null;
+    if (!myId) window.RollToast?.show?.("Couldn't sign you in — check your connection and try again.");
     return !!myId;
   }
 

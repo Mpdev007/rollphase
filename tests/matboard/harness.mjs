@@ -2,6 +2,11 @@
 // Real Chrome, phone size (360x740, DPR 4, touch, Android UA), a fixed geolocation, the beta gate
 // accepted, and the laptop-only endpoints route-blocked so tests never depend on them.
 import { chromium } from "playwright";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+
+const SESSION_DIR = join(dirname(fileURLToPath(import.meta.url)), ".qa-sessions");
 
 export const APP_URL = "http://127.0.0.1:8880/";
 export const ANDROID_UA =
@@ -66,6 +71,32 @@ export async function openApp(browser, { geo, url = APP_URL, storageState, onPag
   return { context, page, pageErrors };
 }
 
+/**
+ * Like openApp, but reuses a cached anonymous-auth storageState for `tag` across separate `node
+ * some-spec.mjs` runs, keyed on tag (e.g. "s8-trust-A"). Supabase's anonymous sign-in is capped at
+ * 30/hour/IP (see supabase-client.js); re-running a multi-context spec repeatedly while debugging
+ * burns that budget fast (one sign-in per context per run) and produces misleading, rate-limit-
+ * flavored failures ("permission denied for function ...") that look like app bugs. First call for
+ * a tag signs in fresh and saves the resulting storageState to disk; later calls (even from a later
+ * process) reuse it, so only a brand-new tag ever consumes a fresh sign-in.
+ */
+export async function openAppPersistent(browser, tag, { geo, url = APP_URL, onPageCreated } = {}) {
+  const file = join(SESSION_DIR, `${tag}.json`);
+  const storageState = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : undefined;
+  return openApp(browser, { geo, url, storageState, onPageCreated });
+}
+
+/**
+ * Call once a spec has done whatever triggers RP.user()'s anonymous sign-in for this context
+ * (e.g. after setProfile/checkIn) — persists the now-authenticated storageState under `tag` so the
+ * *next* `node some-spec.mjs` run reuses this same identity instead of signing in again. Safe to
+ * call even when the session was already cached (just re-saves the same state).
+ */
+export async function saveIdentity(ctx, tag) {
+  mkdirSync(SESSION_DIR, { recursive: true });
+  writeFileSync(join(SESSION_DIR, `${tag}.json`), JSON.stringify(await ctx.context.storageState()));
+}
+
 /** Accepts the closed-beta disclaimer gate if it's showing. Idempotent. */
 export async function acceptBetaGate(page) {
   const agree = page.locator("#betaAgree");
@@ -92,6 +123,9 @@ export const REALTIME_READY_NOTE =
  * ever touches Pure Brazilian Jiu Jitsu or needs live geolocation search.
  */
 export async function openQaGym(page, { id, name, lat, lng, sports = ["bjj"], city = "Austin, TX" } = {}) {
+  // app.js defines `state` and `openGymDetail` asynchronously after the beta gate closes; under
+  // load (many contexts booting at once) it can still be mid-boot right after openApp() returns.
+  await page.waitForFunction(() => typeof state !== "undefined" && state?.live && typeof openGymDetail === "function", { timeout: 10000 });
   await page.evaluate(
     (g) => {
       state.live.places.push({
