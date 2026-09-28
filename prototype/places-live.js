@@ -851,9 +851,12 @@ out center tags 40;`;
     if (inFlightNearby.has(key)) return inFlightNearby.get(key);
     const p = fetchNearbyUncached(opts);
     inFlightNearby.set(key, p);
+    // This chain's own result is never awaited by anyone (the caller gets `p` itself), so if it
+    // rejects it becomes an unhandled promise rejection — surfaces as a pageerror in a real
+    // browser even though the caller of fetchNearby() still sees and can handle the rejection.
     p.finally(() => {
       if (inFlightNearby.get(key) === p) inFlightNearby.delete(key);
-    });
+    }).catch(() => {});
     return p;
   }
 

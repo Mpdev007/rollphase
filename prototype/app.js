@@ -1664,7 +1664,7 @@ function bindRateForm(gymId, sport) {
     const line = `${g?.name || "Venue"} on RollPhase${agg ? ` · ${agg.overall}★ (${agg.count} athlete reviews)` : ""}${g?.website ? ` · ${g.website}` : ""} — ${location.origin}${location.pathname}#gym=${gymId}`;
     try {
       navigator.clipboard?.writeText(line);
-      alert("Copied share blurb for friends (app or not).");
+      window.RollToast?.show?.("Copied share blurb for friends (app or not).");
     } catch {
       prompt("Copy this:", line);
     }
@@ -2894,7 +2894,10 @@ function navUrl(entry) {
 }
 
 function parseLocationToEntry() {
-  const raw = (location.hash || "").replace(/^#/, "");
+  // A share/poster link is #/gym/<id>?src=share|poster — strip that query suffix before it's
+  // ever used as a gymId, or every id it's attached to fails to match (found via the Mat Board's
+  // own share links: scanning the printed QR silently landed on Home instead of the board).
+  const raw = (location.hash || "").replace(/^#/, "").split("?")[0];
   if (!raw || raw === "/" || raw === "") return { view: "tab", tab: "home" };
   const path = raw.startsWith("/") ? raw.slice(1) : raw;
   if (path.startsWith("gym/")) {
