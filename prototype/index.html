@@ -228,6 +228,15 @@
                   </div>
                 </div>
 
+                <div class="card static share-app-card" id="shareAppCard">
+                  <div class="share-app-copy">
+                    <h3>Share Rollphase</h3>
+                    <p class="muted small">The mark sits in the code. A phone without the app installs it. A phone with the app opens Rollphase.</p>
+                    <button type="button" class="btn-primary" id="shareAppBtn">Share</button>
+                  </div>
+                  <canvas id="shareAppQr" role="img" aria-label="QR code for Rollphase"></canvas>
+                </div>
+
                 <div class="card static">
                   <h3>About you</h3>
                   <div class="social-field">
@@ -284,6 +293,17 @@
                 </div>
                 <p class="hint">Fine-tuning and app preferences — kept off the main profile.</p>
 
+                <div class="card static" id="iconPackCard">
+                  <h3>Icon pack</h3>
+                  <p class="muted small">The line around the icons. The icon itself stays put.</p>
+                  <div class="icon-pack-picks" id="iconPackPicks"></div>
+                  <label class="rep-slider-label" for="iconHue">Line colour <span id="iconHueLabel">43°</span></label>
+                  <input type="range" id="iconHue" min="0" max="360" value="43" />
+                  <div class="hue-jumps" id="iconHueJumps"></div>
+                  <label class="rep-slider-label" for="iconVis">Line strength <span id="iconVisLabel">46</span></label>
+                  <input type="range" id="iconVis" min="0" max="100" value="46" />
+                </div>
+
                 <div class="card static">
                   <h3>Look · I represent</h3>
                   <p class="muted small">Colors, pattern, crop, and smart palette from your logo.</p>
@@ -300,7 +320,42 @@
                   <h3>Privacy</h3>
                   <label class="toggle-row"><span>Open to train</span><input type="checkbox" id="privOpenTrain" checked /></label>
                   <label class="toggle-row"><span>Show in “here now”</span><input type="checkbox" id="privShowHere" checked /></label>
-                  <label class="toggle-row"><span>Event push notifications</span><input type="checkbox" id="privEventPush" checked /></label>
+                </div>
+
+                <div class="card static" id="assistantCard">
+                  <h3>Your assistant</h3>
+                  <p class="muted small">Muse runs the app with your own Muse account, after the app premium. A Gemini key writes the note about a place and stays on this phone. Both keeps those jobs separate. Rollphase does not pay for either.</p>
+                  <div class="seg" id="assistantMode" style="margin:10px 0">
+                    <button type="button" class="seg-btn" data-assistant="muse">Muse</button>
+                    <button type="button" class="seg-btn" data-assistant="gemini">Gemini</button>
+                    <button type="button" class="seg-btn" data-assistant="both">Both</button>
+                  </div>
+                  <p class="muted small" id="assistantStatus"></p>
+                  <div id="assistantMuseBlock">
+                    <div class="social-field" id="assistantBridgeField">
+                      <label for="assistantBridge">Muse link</label>
+                      <input id="assistantBridge" type="url" inputmode="url" autocomplete="off" placeholder="https://…" />
+                    </div>
+                    <div class="social-field">
+                      <label for="assistantAccount">Account</label>
+                      <input id="assistantAccount" type="text" autocomplete="username" placeholder="Name on the app premium" />
+                    </div>
+                    <div class="assistant-actions">
+                      <button type="button" class="btn-primary" id="assistantMuseBtn">Connect Muse</button>
+                    </div>
+                    <textarea id="assistantMuseNote" class="assistant-note hidden" readonly></textarea>
+                    <button type="button" class="btn-ghost hidden" id="assistantCopyNote" style="width:100%;margin-top:8px">Copy note for Muse</button>
+                  </div>
+                  <div id="assistantGeminiBlock">
+                    <div class="social-field">
+                      <label for="assistantGeminiKey">Gemini key</label>
+                      <input id="assistantGeminiKey" type="password" autocomplete="off" placeholder="Paste your key" />
+                    </div>
+                    <div class="assistant-actions">
+                      <button type="button" class="btn-ghost" id="assistantGeminiCheck">Check key</button>
+                      <button type="button" class="btn-ghost" id="assistantGeminiClear">Remove</button>
+                    </div>
+                  </div>
                 </div>
 
                 <div class="card static">
@@ -355,23 +410,23 @@
 
           <nav class="tab-bar" aria-label="Main">
             <button type="button" class="tab active" data-tab="home">
-              <span class="tab-glyph" aria-hidden="true"><img src="assets/tabs/home.jpg" alt="" /></span>
+              <span class="tab-glyph" aria-hidden="true"><img class="tab-fallback" src="assets/tabs/home.jpg" alt="" /><canvas class="tab-pack" data-job="home" width="144" height="144"></canvas></span>
               <span>Home</span>
             </button>
             <button type="button" class="tab" data-tab="gyms">
-              <span class="tab-glyph" aria-hidden="true"><img src="assets/tabs/gyms.jpg" alt="" /></span>
+              <span class="tab-glyph" aria-hidden="true"><img class="tab-fallback" src="assets/tabs/gyms.jpg" alt="" /><canvas class="tab-pack" data-job="gyms" width="144" height="144"></canvas></span>
               <span>Gyms</span>
             </button>
             <button type="button" class="tab" data-tab="partners">
-              <span class="tab-glyph" aria-hidden="true"><img src="assets/tabs/partners.jpg" alt="" /></span>
+              <span class="tab-glyph" aria-hidden="true"><img class="tab-fallback" src="assets/tabs/partners.jpg" alt="" /><canvas class="tab-pack" data-job="partners" width="144" height="144"></canvas></span>
               <span>Partners</span>
             </button>
             <button type="button" class="tab" data-tab="feed">
-              <span class="tab-glyph" aria-hidden="true"><img src="assets/tabs/feed.jpg" alt="" /></span>
+              <span class="tab-glyph" aria-hidden="true"><img class="tab-fallback" src="assets/tabs/feed.jpg" alt="" /><canvas class="tab-pack" data-job="feed" width="144" height="144"></canvas></span>
               <span>Feed</span>
             </button>
             <button type="button" class="tab" data-tab="profile">
-              <span class="tab-glyph" aria-hidden="true"><img src="assets/tabs/profile.jpg" alt="" /></span>
+              <span class="tab-glyph" aria-hidden="true"><img class="tab-fallback" src="assets/tabs/profile.jpg" alt="" /><canvas class="tab-pack" data-job="profile" width="144" height="144"></canvas></span>
               <span>Profile</span>
             </button>
           </nav>
@@ -397,6 +452,8 @@
   <script src="share.js"></script>
   <script src="passport.js"></script>
   <script src="family.js"></script>
+  <script src="pack-renderer.js"></script>
+  <script src="assistant.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

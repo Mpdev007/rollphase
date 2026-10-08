@@ -22,6 +22,7 @@ const MatBoard = (() => {
   let myId = null;
   let myProfile = null;
   let data = { slots: [], intentsBySlot: new Map(), childrenByIntentId: new Map(), profilesById: new Map(), checkins: [], dropinFee: null, myChildren: [], isStaffHere: false };
+  let sharedSlotScrolled = false;
   let mountToken = 0; // bumped on every mount()/teardown() so stale async work is dropped
   let loadToken = 0; // bumped on every loadAndRender() call so an older, slower fetch never
   // clobbers a newer one's result — a write and its own realtime echo can both trigger a load,
@@ -83,6 +84,7 @@ const MatBoard = (() => {
     teardown();
     mountToken = token; // teardown() doesn't bump it further; keep our token current
     gym = g;
+    sharedSlotScrolled = false;
     host = document.getElementById("matBoard");
     if (!host) return;
     host.innerHTML = `<div class="mat-board"><p class="mb-sub">Loading the board…</p></div>`;
@@ -362,6 +364,7 @@ const MatBoard = (() => {
     html.push(`</div>`);
     host.innerHTML = html.join("");
     bindEvents();
+    focusSharedSlot();
   }
 
   function renderHereNow() {
@@ -479,7 +482,7 @@ const MatBoard = (() => {
       <div class="mb-slot-top">
         <div><div class="mb-slot-time">${fmtTime(slot.start_min)}</div>
         <div class="mb-slot-kind">${escapeHtml(kindLabel)} · ${escapeHtml(sportName)}${slot.note ? " · " + escapeHtml(slot.note) : ""}</div></div>
-        ${audienceBadge}
+        <div class="mb-slot-actions">${audienceBadge}<button type="button" class="mb-share-session" data-action="share-slot" data-slot="${slot.id}" data-date="${occ.iso}">Share</button></div>
       </div>
       ${gear ? `<div class="mb-slot-gear">${gear}</div>` : ""}
       <div class="mb-slot-conf${stale ? " unconfirmed" : ""}">${confLine}${actions}</div>
@@ -491,14 +494,19 @@ const MatBoard = (() => {
 
   function bindEvents() {
     host.querySelector("#mbShare")?.addEventListener("click", () => {
-      if (typeof window.RollShare?.open === "function") {
-        window.RollShare.open({
-          title: gym.name,
-          text: `Who's training at ${gym.name} — RollPhase`,
-          url: `${location.origin}${location.pathname}#/gym/${encodeURIComponent(gym.id)}?src=share`,
-        });
-      }
+      if (typeof window.RollShare?.open !== "function") return;
+      window.RollShare.open({
+        headline: "Share this board",
+        title: gym.name,
+        text: `Who's training at ${gym.name}`,
+        note: "Scan it. The phone installs Rollphase if needed, then opens this board.",
+        url: window.RollShare.gymUrl(gym),
+        poster: true,
+      });
     });
+    host.querySelectorAll('[data-action="share-slot"]').forEach((el) =>
+      el.addEventListener("click", () => shareSlot(el.dataset.slot, el.dataset.date))
+    );
     host.querySelector('[data-action="checkin"]')?.addEventListener("click", onCheckin);
     host.querySelector('[data-action="add-slot"]')?.addEventListener("click", () => openSlotSheet(null));
     host.querySelectorAll('[data-action="confirm"]').forEach((el) =>
@@ -526,6 +534,39 @@ const MatBoard = (() => {
     host.querySelector('[data-action="edit-fee"]')?.addEventListener("click", (e) => {
       e.preventDefault();
       onEditFee();
+    });
+  }
+
+  function focusSharedSlot() {
+    const slot = window.RollShare?.readArrival?.()?.slot;
+    if (!slot || !host) return;
+    const card = host.querySelector(`[data-slot-card="${CSS.escape(String(slot))}"]`);
+    if (!card) return;
+    card.classList.add("is-shared");
+    if (!sharedSlotScrolled) {
+      sharedSlotScrolled = true;
+      card.scrollIntoView({ block: "center" });
+    }
+  }
+
+  function shareSlot(slotId, dateIso) {
+    if (typeof window.RollShare?.open !== "function") return;
+    const slot = data.slots.find((s) => String(s.id) === String(slotId));
+    if (!slot) return;
+    const kind = KIND_LABELS[slot.kind] || slot.kind;
+    const sportName =
+      (typeof SPORTS !== "undefined" ? SPORTS.find((s) => s.id === slot.sport)?.short : null) || slot.sport || "";
+    const gear = (slot.gear || []).join(", ");
+    const occ = weekOccurrences().find((o) => o.iso === dateIso);
+    const when = `${occ ? fmtDayLabel(occ) : dateIso} · ${fmtTime(slot.start_min)} ${kind}`;
+    const detail = [sportName, gear, gym.name].filter(Boolean).join(" · ");
+    window.RollShare.open({
+      headline: "Share this session",
+      title: when,
+      text: detail,
+      note: "Scan it. The phone installs Rollphase if needed, then opens this session.",
+      url: window.RollShare.sessionUrl(gym, slot.id, dateIso),
+      poster: false,
     });
   }
 
@@ -590,6 +631,12 @@ const MatBoard = (() => {
 
   async function onCheckin() {
     const msgEl = host.querySelector("#mbCheckinMsg");
+    if (typeof state !== "undefined" && state.showHere === false) {
+      if (msgEl) {
+        msgEl.innerHTML = `<div class="mb-checkin-status err">Here now is off. Turn it on in Settings to appear on this board.</div>`;
+      }
+      return;
+    }
     if (!navigator.geolocation) {
       msgEl.innerHTML = `<div class="mb-checkin-status err">Location isn't available on this device.</div>`;
       return;

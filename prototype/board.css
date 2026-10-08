@@ -147,6 +147,27 @@
   align-items: flex-start;
   gap: 8px;
 }
+.mb-slot-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.mb-share-session {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.mb-slot.is-shared {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
 .mb-slot-time {
   font-size: 1.02rem;
   font-weight: 800;

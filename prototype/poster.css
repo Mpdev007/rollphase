@@ -43,6 +43,7 @@
   body.poster #shareCloseBtn,
   body.poster .sheet-handle,
   body.poster .mb-header button,
+  body.poster .mb-share-session,
   body.poster .mb-here,
   body.poster .mb-add-btn,
   body.poster .mb-slot-conf a,
@@ -94,7 +95,7 @@
     height: 70mm !important;
     min-width: 60mm;
     min-height: 60mm;
-    image-rendering: pixelated;
+    image-rendering: auto;
     border: 1pt solid #000;
     margin: 0 auto 14pt;
   }

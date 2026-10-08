@@ -13,6 +13,7 @@ const state = {
   profilePanel: "main",
   agePool: "adult",
   openToTrain: true,
+  showHere: true,
   checkedInGym: null,
   sportQuery: "",
   /** demo: "guest" = no sports on profile; "athlete" = multi-sport profile */
@@ -39,7 +40,7 @@ const PROFILE_KEY = "rollphase.profile.v1";
 const SETTINGS_KEY = "rollphase.settings.v1";
 
 function defaultSettings() {
-  return { text: "md", haptics: true, googlePlacesApiKey: "" };
+  return { text: "md", haptics: true, googlePlacesApiKey: "", iconPack: "fight", iconHue: 43, iconVis: 46 };
 }
 
 function loadSettings() {
@@ -53,6 +54,7 @@ function loadSettings() {
 function applySettings(s) {
   const text = s?.text === "sm" || s?.text === "lg" ? s.text : "md";
   document.documentElement.dataset.text = text;
+  if (window.IconPacks) IconPacks.apply(s);
 }
 
 function saveSettings(partial) {
@@ -91,6 +93,8 @@ function loadPersisted() {
       state.profile.displayName = "";
     }
     if (saved.agePool === "teen" || saved.agePool === "adult") state.agePool = saved.agePool;
+    if (typeof saved.openToTrain === "boolean") state.openToTrain = saved.openToTrain;
+    if (typeof saved.showHere === "boolean") state.showHere = saved.showHere;
     if (saved.focusSport) state.sport = saved.focusSport;
   } catch {
     /* ignore bad storage */
@@ -103,6 +107,8 @@ function savePersisted() {
     const snap = {
       ...state.profile,
       agePool: state.agePool,
+      openToTrain: state.openToTrain,
+      showHere: state.showHere,
       focusSport: state.sport || null,
     };
     delete snap.googlePlacesApiKey;
@@ -110,7 +116,14 @@ function savePersisted() {
   } catch {
     /* quota: drop the photo and try once */
     try {
-      const slim = { ...state.profile, photoDataUrl: null, agePool: state.agePool, focusSport: state.sport || null };
+      const slim = {
+        ...state.profile,
+        photoDataUrl: null,
+        agePool: state.agePool,
+        openToTrain: state.openToTrain,
+        showHere: state.showHere,
+        focusSport: state.sport || null,
+      };
       if (slim.represent) slim.represent = { ...slim.represent, logoDataUrl: null };
       localStorage.setItem(PROFILE_KEY, JSON.stringify(slim));
     } catch {
@@ -124,6 +137,12 @@ function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(savePersisted, 250);
 }
+window.addEventListener("pagehide", () => {
+  if (!saveTimer) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  savePersisted();
+});
 
 function emptyProfile() {
   return {
@@ -285,14 +304,15 @@ function eventSearchLink(sport) {
 
 function calendarHTML(sport) {
   const s = sport || sportMeta(focusId());
+  if (!s) return "";
   const links = [];
   const local = eventSearchLink(s);
   if (local) links.push(local);
-  if (s?.calendar?.href && s.calendar.href !== local?.href) links.push(s.calendar);
+  if (s.calendar?.href && s.calendar.href !== local?.href) links.push(s.calendar);
   return links
     .map(
       (link) =>
-        `<a class="calendar-out" href="${escapeHtml(link.href)}" target="_blank" rel="noopener noreferrer"><span>${escapeHtml(link.label)}</span><span aria-hidden="true">↗</span></a>`
+        `<div class="calendar-row"><a class="calendar-out" href="${escapeHtml(link.href)}" target="_blank" rel="noopener noreferrer"><span>${escapeHtml(link.label)}</span><span aria-hidden="true">↗</span></a><button type="button" class="calendar-share" data-share-cal="${escapeHtml(link.href)}" data-share-sport="${escapeHtml(s.id)}" data-share-label="${escapeHtml(link.label)}">Share</button></div>`
     )
     .join("");
 }
@@ -609,6 +629,28 @@ function allLivePlaces() {
 
 function findGym(id) {
   return allLivePlaces().find((x) => x.id === id) || null;
+}
+
+/** A shared link carries the gym's name, so the board opens before this phone has searched. */
+function gymFromShare(id) {
+  const found = findGym(id);
+  if (found) return found;
+  const arrival = window.RollShare?.readArrival?.();
+  if (!arrival?.name || String(arrival.gymId || "") !== String(id)) return null;
+  const lat = Number(arrival.lat);
+  const lng = Number(arrival.lng);
+  return {
+    id: String(id),
+    name: arrival.name,
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null,
+    sports: arrival.sport ? [arrival.sport] : [],
+    address: "",
+    tags: {},
+    here: {},
+    hours: "",
+    open: null,
+  };
 }
 
 /**
@@ -1211,9 +1253,31 @@ function renderHomeWelcome() {
   }
 }
 
+function paintTrainToggle() {
+  const train = $("#toggleTrain");
+  if (train) train.textContent = state.openToTrain ? "Open to train · On" : "Open to train · Off";
+  const box = $("#privOpenTrain");
+  if (box) box.checked = state.openToTrain !== false;
+  const here = $("#privShowHere");
+  if (here) here.checked = state.showHere !== false;
+}
+
+function setOpenToTrain(on) {
+  state.openToTrain = !!on;
+  paintTrainToggle();
+  savePersisted();
+}
+
+function setShowHere(on) {
+  state.showHere = !!on;
+  paintTrainToggle();
+  savePersisted();
+}
+
 function renderHome() {
   const sport = focusId();
   const s = sportMeta(sport);
+  paintTrainToggle();
 
   renderHomeWelcome();
   renderHomeSportRail();
@@ -1376,6 +1440,24 @@ function renderGyms() {
     return;
   }
 
+  if (!list.length && gymsForSport().length && state.gymFilter !== "all" && !state.live.loading) {
+    if (mapMode && typeof L !== "undefined") {
+      if (!document.getElementById("liveMap")) {
+        mapEl.innerHTML = `<div id="liveMap" class="live-map" role="application" aria-label="Venue map"></div>`;
+      }
+      renderLiveMap([]);
+    }
+    listEl.innerHTML =
+      empty("Nothing matched that filter", "These places do not list it.") +
+      `<button type="button" class="btn-primary" id="clearGymFilter" style="margin-top:12px">Show all places</button>`;
+    $("#clearGymFilter")?.addEventListener("click", () => {
+      state.gymFilter = "all";
+      renderGymFilters();
+      renderGyms();
+    });
+    return;
+  }
+
   if (mapMode && typeof L !== "undefined") {
     if (!document.getElementById("liveMap")) {
       mapEl.innerHTML = `<div id="liveMap" class="live-map" role="application" aria-label="Venue map"></div>`;
@@ -1493,7 +1575,6 @@ function renderReviewsPanel(gymId, sport) {
     <div class="ext-links">
       <a href="${escapeHtml((findGym(gymId)?.mapsUrl) || mapsSearchUrl(findGym(gymId)?.name || ""))}" target="_blank" rel="noopener">Open in Google Maps</a>
       ${findGym(gymId)?.website ? `<a href="${escapeHtml(findGym(gymId).website)}" target="_blank" rel="noopener">Venue website</a>` : ""}
-      <button type="button" class="linkish" id="copyVenueShare">Copy share link for non-app friends</button>
     </div>
   `;
 }
@@ -1610,22 +1691,11 @@ function bindRateForm(gymId, sport) {
     });
   });
 
-  $("#copyVenueShare")?.addEventListener("click", () => {
-    const g = findGym(gymId);
-    const agg = RS.aggregateRating(gymId, sport);
-    const line = `${g?.name || "Venue"} on RollPhase${agg ? ` · ${agg.overall}★ (${agg.count} athlete reviews)` : ""}${g?.website ? ` · ${g.website}` : ""} — ${location.origin}${location.pathname}#gym=${gymId}`;
-    try {
-      navigator.clipboard?.writeText(line);
-      window.RollToast?.show?.("Copied share blurb for friends (app or not).");
-    } catch {
-      prompt("Copy this:", line);
-    }
-  });
 }
 
 function openGymDetail(id, opts = {}) {
   if (!opts.historyMode) opts.historyMode = "push";
-  const g = findGym(id);
+  const g = findGym(id) || gymFromShare(id);
   if (!g) return;
   const sports = g.sports || [];
   const sport = focusId() && sports.includes(focusId()) ? focusId() : sports[0];
@@ -1662,6 +1732,7 @@ function openGymDetail(id, opts = {}) {
         ${g.phone ? '<span class="tag-pill">Phone</span>' : ""}
         ${g.website ? '<span class="tag-pill">Website</span>' : ""}
       </div>
+      <button type="button" class="btn-primary share-block-btn" id="shareGymBtn">Share this gym</button>
     </div>
     <div class="detail-tabs">
       <button type="button" class="detail-tab active" data-panel="overview">Overview</button>
@@ -1694,6 +1765,12 @@ function openGymDetail(id, opts = {}) {
       <button type="button" class="btn-ghost" id="savePlace" style="width:100%;margin-top:8px;padding:12px">${isFavorite(g.id) ? "✓ Saved place" : "Save place · stay in the loop"}</button>
       <button type="button" class="btn-ghost" id="followGym" style="width:100%;margin-top:8px;padding:12px">Follow for updates</button>
       <button type="button" class="btn-ghost" id="jumpReviews" style="width:100%;margin-top:8px;padding:12px">See athlete reviews</button>
+      ${
+        typeof RollAssistant !== "undefined" && RollAssistant.usesGemini()
+          ? `<button type="button" class="btn-ghost" id="askPlaceBtn" style="width:100%;margin-top:8px;padding:12px">Ask about this place</button>
+             <p class="muted small" id="askPlaceAnswer" style="margin-top:8px"></p>`
+          : ""
+      }
       ${
         sport && !profileSports().some((ps) => ps.id === sport)
           ? `<button type="button" class="btn-ghost" id="addSportFromGym" style="width:100%;margin-top:8px;padding:12px">Add ${escapeHtml(s?.short || "sport")} to my profile</button>`
@@ -1754,8 +1831,38 @@ function openGymDetail(id, opts = {}) {
   });
   bindRateForm(g.id, sport);
   refreshVisitTip(g.id);
+  $("#shareGymBtn")?.addEventListener("click", () => {
+    if (typeof window.RollShare?.open !== "function") return;
+    window.RollShare.open({
+      headline: "Share this gym",
+      title: g.name,
+      text: `Who's training at ${g.name}`,
+      note: "Scan it. The phone installs Rollphase if needed, then opens this gym.",
+      url: window.RollShare.gymUrl(g),
+      poster: true,
+    });
+  });
   $("#jumpReviews")?.addEventListener("click", () => {
     document.querySelector('.detail-tab[data-panel="reviews"]')?.click();
+  });
+  $("#askPlaceBtn")?.addEventListener("click", async () => {
+    const el = $("#askPlaceAnswer");
+    if (el) el.textContent = "Asking with your key…";
+    try {
+      const text = await RollAssistant.askPlace({
+        name: g.name,
+        address: g.address || "",
+        miles: g.mi,
+        sport: s?.name || sport || "",
+        hours: hoursDisplay,
+        phone: g.phone || "",
+        website: g.website || "",
+        open: openLabel,
+      });
+      if (el) el.textContent = text;
+    } catch (err) {
+      if (el) el.textContent = err.message || "Gemini did not answer.";
+    }
   });
   $("#savePlace")?.addEventListener("click", (e) => {
     toggleFavorite(g);
@@ -2056,7 +2163,7 @@ function renderGear() {
         </article>`
             )
             .join("")
-        : empty("No needs", "Post a want/have for this sport.");
+        : empty("No needs yet", "Wants and offers for this sport show up here when athletes post them.");
     }
   }
 }
@@ -2483,11 +2590,13 @@ function openProfileSettings(opts = {}) {
     notifyHost.querySelectorAll("[data-notify-pref]").forEach((input) => {
       input.addEventListener("change", () => {
         ensureNotify()[input.dataset.notifyPref] = input.checked;
+        scheduleSave();
       });
     });
   }
   if (historyMode === "push") pushNav({ view: "settings", tab: "profile" });
   else if (historyMode === "replace") replaceNav({ view: "settings", tab: "profile" });
+  bindPhoneSettings();
   $("#profileSettings")?.scrollTo?.(0, 0);
   const screen = $("#screen-profile");
   if (screen) screen.scrollTop = 0;
@@ -2557,6 +2666,119 @@ function bindPhoneSettings() {
       if (hap.checked) buzz(16);
     });
   }
+  bindIconPack(settings);
+  paintTrainToggle();
+  if (window.RollAssistant) RollAssistant.bind();
+  const trainBox = $("#privOpenTrain");
+  const hereBox = $("#privShowHere");
+  if (trainBox && trainBox.dataset.bound !== "1") {
+    trainBox.dataset.bound = "1";
+    trainBox.addEventListener("change", () => setOpenToTrain(trainBox.checked));
+  }
+  if (hereBox && hereBox.dataset.bound !== "1") {
+    hereBox.dataset.bound = "1";
+    hereBox.addEventListener("change", () => setShowHere(hereBox.checked));
+  }
+}
+
+const ICON_HUE_JUMPS = [
+  ["Gold", 43], ["Crimson", 4], ["Orange", 24], ["Lime", 92],
+  ["Emerald", 142], ["Cyan", 178], ["Royal", 218], ["Violet", 278], ["Magenta", 322]
+];
+
+function bindIconPack(settings) {
+  const picks = $("#iconPackPicks");
+  const hue = $("#iconHue");
+  const vis = $("#iconVis");
+  if (!picks || !hue || !vis || !window.IconPacks) return;
+  const current = IconPacks.read(settings);
+  if (picks.dataset.bound !== "1") {
+    picks.dataset.bound = "1";
+    IconPacks.PACKS.forEach((p) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "seg-btn";
+      btn.dataset.pack = p.id;
+      btn.textContent = p.name;
+      picks.appendChild(btn);
+    });
+    picks.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-pack]");
+      if (!btn) return;
+      buzz(8);
+      saveSettings({ iconPack: btn.dataset.pack });
+      syncIconPackControls(loadSettings());
+    });
+    const jumps = $("#iconHueJumps");
+    ICON_HUE_JUMPS.forEach(([name, deg]) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.dataset.hue = String(deg);
+      btn.textContent = name;
+      jumps.appendChild(btn);
+    });
+    jumps.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-hue]");
+      if (!btn) return;
+      buzz(8);
+      saveSettings({ iconHue: Number(btn.dataset.hue) });
+      syncIconPackControls(loadSettings());
+    });
+    hue.addEventListener("input", () => {
+      saveSettings({ iconHue: Number(hue.value) });
+      syncIconPackControls(loadSettings());
+    });
+    vis.addEventListener("input", () => {
+      saveSettings({ iconVis: Number(vis.value) });
+      syncIconPackControls(loadSettings());
+    });
+  }
+  syncIconPackControls(current);
+}
+
+function syncIconPackControls(settings) {
+  const current = window.IconPacks ? IconPacks.read(settings) : settings;
+  $$("#iconPackPicks .seg-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.pack === current.iconPack || btn.dataset.pack === current.pack);
+  });
+  const hue = $("#iconHue");
+  const vis = $("#iconVis");
+  const hueValue = current.hue ?? current.iconHue;
+  const visValue = current.vis ?? current.iconVis;
+  if (hue && document.activeElement !== hue) hue.value = String(hueValue);
+  if (vis && document.activeElement !== vis) vis.value = String(visValue);
+  const near = ICON_HUE_JUMPS.find((j) => Math.abs(j[1] - hueValue) <= 3);
+  const hueLabel = $("#iconHueLabel");
+  const visLabel = $("#iconVisLabel");
+  if (hueLabel) hueLabel.textContent = near ? hueValue + "° " + near[0] : hueValue + "°";
+  if (visLabel) visLabel.textContent = String(visValue);
+  $$("#iconHueJumps button").forEach((btn) => {
+    btn.classList.toggle("on", near && btn.textContent === near[0]);
+  });
+}
+
+function paintAppShare() {
+  if (typeof window.RollShare?.paint !== "function") return;
+  const canvas = $("#shareAppQr");
+  const url = window.RollShare.appUrl();
+  if (canvas && canvas.dataset.url !== url) {
+    canvas.dataset.url = url;
+    window.RollShare.paint(canvas, url);
+  }
+  const btn = $("#shareAppBtn");
+  if (btn && btn.dataset.bound !== "1") {
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", () => {
+      window.RollShare.open({
+        headline: "Share Rollphase",
+        title: "Rollphase",
+        text: "Train near you.",
+        note: "Scan it. The phone installs Rollphase if needed, then opens the app.",
+        url: window.RollShare.appUrl(),
+        poster: false,
+      });
+    });
+  }
 }
 
 function renderProfile() {
@@ -2614,6 +2836,7 @@ function renderProfile() {
     );
   }
   bindPhoneSettings();
+  paintAppShare();
 
   const sportsHost = $("#profileSports");
   if (sportsHost) {
@@ -2976,6 +3199,7 @@ function switchTab(tab, opts = {}) {
       /* ignore */
     }
   }
+  window.RollShare?.mountArrival?.();
 }
 
 /**
@@ -2995,6 +3219,7 @@ function applyNavEntry(entry, { isPop = false } = {}) {
             openGymDetail(entry.gymId, { historyMode: "none" });
           } finally {
             state._navSilent = false;
+            window.RollShare?.mountArrival?.();
           }
         });
       } else {
@@ -3032,6 +3257,7 @@ function applyNavEntry(entry, { isPop = false } = {}) {
     switchTab(entry.tab || "home", { historyMode: "none" });
   } finally {
     state._navSilent = false;
+    window.RollShare?.mountArrival?.();
   }
 }
 
@@ -3193,6 +3419,23 @@ function bind() {
       openGymDetail(card.dataset.gym, { historyMode: "push" });
     }
 
+    const calShare = e.target.closest("[data-share-cal]");
+    if (calShare && typeof window.RollShare?.open === "function") {
+      e.preventDefault();
+      const sportId = calShare.dataset.shareSport;
+      const label = calShare.dataset.shareLabel || "Calendar";
+      const sport = sportMeta(sportId);
+      window.RollShare.open({
+        headline: "Share this calendar",
+        title: label,
+        text: sport ? `${sport.short} · ${label}` : label,
+        note: "Scan it. The phone installs Rollphase if needed, then opens this calendar.",
+        url: window.RollShare.calendarUrl(sportId, calShare.dataset.shareCal),
+        poster: false,
+      });
+      return;
+    }
+
     const nbtn = e.target.closest("[data-notify]");
     if (nbtn && (state.tab === "home" || state.tab === "feed")) {
       const id = nbtn.dataset.notify;
@@ -3270,10 +3513,7 @@ function bind() {
   });
 
   $("#toggleTrain")?.addEventListener("click", () => {
-    state.openToTrain = !state.openToTrain;
-    if ($("#toggleTrain")) {
-      $("#toggleTrain").textContent = state.openToTrain ? "Open to train · On" : "Open to train · Off";
-    }
+    setOpenToTrain(!state.openToTrain);
   });
 
   const tick = () => {
@@ -3290,6 +3530,7 @@ function bind() {
   try {
     loadPersisted();
     applySettings(loadSettings());
+    paintTrainToggle();
     // Emphasize first-choice sport when profile has one (still optional to clear)
     if (state.sport) {
       /* kept from this phone */
@@ -3311,6 +3552,9 @@ function bind() {
         state.live.fromCache = true;
       }
     }
+
+    const shared = window.RollShare?.readArrival?.();
+    if (shared?.sport && SPORTS.some((s) => s.id === shared.sport)) state.sport = shared.sport;
 
     renderStageSwatches();
     applySkin(state.sport, { flash: false });
