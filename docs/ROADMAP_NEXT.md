@@ -31,19 +31,6 @@ Do not use `ship.ps1` `git add -A`. Do not commit `config.js`, `.enrich-cache.js
 
 - [ ] Studio 3D glyph pack, kept beside Fight night, Neon, Chalk, Ice, and Bright. Sport objects live in `prototype/packs/studio/` and `prototype/assets/sports/studio/`. Recolor is a thin rim. First Studio tab paint can hitch. The phone picker does not offer Studio.
 
-| Sport | Door | Final page |
-|---|---|---|
-| Soccer | U.S. Soccer schedule | https://www.ussoccer.com/all-matches |
-| Running | USATF events | https://www.usatf.org/events |
-| Wrestling | USA Wrestling events | https://usawrestlingevents.com/events |
-| Boxing | USA Boxing events | https://usaboxing.webpoint.us/wp15/Events2/Events-wp.php?evt_CategoryID=4,1,2,11,10 |
-| Climbing | World Climbing calendar | https://www.worldclimbing.com/calendar |
-| Cycling | USA Cycling events | https://usacycling.sport80.com/pub/e_locator/events/find?from_date=today |
-| Swimming | U.S. Masters meets | https://www.usms.org/events |
-| Basketball | FIBA 3x3 events | https://play.fiba3x3.com/events |
-
-Combat sports also keep Smoothcomp. Pickleball also keeps DUPR. The other doors that already opened and were left in place: IBJJF, UFC, WAKO, IJF, CrossFit Games, HYROX, pickleball tournaments, USA Volleyball, IFMA, USA Weightlifting, USTA, Yoga Alliance, and the Pilates workshop calendar.
-
 ### Known limits to revisit later, not to invent around
 
 - [ ] Soccer is the national-team schedule. U.S. Soccer does not publish an adult rec-league calendar. The old `/calendar` URL is a soft 404.
